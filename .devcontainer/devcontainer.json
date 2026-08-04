@@ -1,0 +1,30 @@
+{
+  "name": "hodoku",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:1-22-bookworm",
+  // Derived from the host folder name, so the container keeps working
+  // whatever the checkout directory is called.
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {}
+  },
+  "containerEnv": {
+    "NPM_CONFIG_FUND": "false",
+    "NPM_CONFIG_AUDIT": "false",
+    // Puppeteer has no linux/arm64 Chromium build; use the distro one everywhere.
+    "PUPPETEER_SKIP_DOWNLOAD": "true",
+    "PUPPETEER_EXECUTABLE_PATH": "/usr/bin/chromium"
+  },
+  "remoteUser": "node",
+  "postCreateCommand": "bash .devcontainer/setup.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "editor.formatOnSave": true
+      }
+    }
+  }
+}

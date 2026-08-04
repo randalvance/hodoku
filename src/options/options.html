@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hodoku — Options</title>
+    <link rel="stylesheet" href="../ui/ui.css" />
+    <style>
+      body { padding: 28px 20px 60px; }
+      main { max-width: 640px; margin: 0 auto; }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+      section { margin-bottom: 22px; }
+      section > h2 { margin-bottom: 8px; }
+      .preview {
+        padding: 11px 13px;
+        border-top: 1px solid var(--border);
+        background: var(--bg-soft);
+        font-size: 13px;
+      }
+      .preview b { font-weight: 600; }
+      .save-bar { display: flex; align-items: center; gap: 11px; margin-top: 11px; }
+      code {
+        padding: 1px 5px;
+        border-radius: 5px;
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="brand__mark" aria-hidden="true">あ</span>
+        <div>
+          <h1>Hodoku</h1>
+          <p class="muted">Highlight Japanese anywhere to get romaji, a breakdown, and the meaning.</p>
+        </div>
+      </header>
+
+      <section>
+        <h2>Reading</h2>
+        <div class="card">
+          <div class="field">
+            <label for="romajiStyle">Romaji style</label>
+            <select id="romajiStyle">
+              <option value="macron">Modified Hepburn — tōkyō (recommended)</option>
+              <option value="doubled">Doubled vowels — tookyoo</option>
+              <option value="none">No long vowels — tokyo</option>
+              <option value="wapuro">Keyboard spelling — toukyou</option>
+            </select>
+            <span class="row__hint">
+              Hepburn is what dictionaries and signage use. Keyboard spelling matches what you type
+              on a Japanese IME.
+            </span>
+          </div>
+          <div class="preview" id="preview"></div>
+          <label class="row">
+            <input type="checkbox" id="showFurigana" />
+            <span class="row__text">
+              <span class="row__title">Show furigana</span>
+              <span class="row__hint">Kana readings above kanji in the breakdown.</span>
+            </span>
+          </label>
+        </div>
+      </section>
+
+      <section>
+        <h2>Behaviour</h2>
+        <div class="card">
+          <label class="row">
+            <input type="checkbox" id="showSelectionButton" />
+            <span class="row__text">
+              <span class="row__title">Show the selection button</span>
+              <span class="row__hint">A small button appears when you highlight Japanese text.</span>
+            </span>
+          </label>
+          <label class="row">
+            <input type="checkbox" id="autoAnalyze" />
+            <span class="row__text">
+              <span class="row__title">Analyse automatically</span>
+              <span class="row__hint">Open the panel as soon as you finish selecting.</span>
+            </span>
+          </label>
+          <div class="field">
+            <label for="theme">Panel theme</label>
+            <select id="theme">
+              <option value="auto">Match the system</option>
+              <option value="light">Light</option>
+              <option value="dark">Dark</option>
+            </select>
+          </div>
+          <div class="field">
+            <span class="row__title">Keyboard shortcut</span>
+            <span class="row__hint">
+              <code>Alt+R</code> analyses the current selection. Change it at
+              <code>chrome://extensions/shortcuts</code>.
+            </span>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>AI translation (optional)</h2>
+        <div class="card">
+          <label class="row">
+            <input type="checkbox" id="aiTranslation" />
+            <span class="row__text">
+              <span class="row__title">Use a model for a fluent sentence translation</span>
+              <span class="row__hint">
+                Off by default. Romaji, readings, and word meanings all work offline without this.
+              </span>
+            </span>
+          </label>
+          <div id="ai-fields">
+            <div class="field">
+              <label for="provider">Provider</label>
+              <select id="provider">
+                <option value="anthropic">Claude (Anthropic)</option>
+                <option value="openai">GPT (OpenAI)</option>
+              </select>
+              <span class="row__hint">
+                Both produce the same panel. Keys and models are remembered separately, so you can
+                switch back and forth without re-entering anything.
+              </span>
+            </div>
+            <div class="field">
+              <label for="apiKey"><span id="key-label">API key</span></label>
+              <input type="password" id="apiKey" autocomplete="off" spellcheck="false" />
+              <span class="row__hint">
+                Stored only in this browser profile and sent only to
+                <code id="key-host">api.anthropic.com</code>. Get one at
+                <a id="console-link" href="#" target="_blank" rel="noopener">the provider console</a>.
+              </span>
+            </div>
+            <div class="field">
+              <label for="apiModel">Model</label>
+              <input id="apiModel" list="model-suggestions" autocomplete="off" spellcheck="false" />
+              <datalist id="model-suggestions"></datalist>
+              <span class="row__hint" id="model-hint"></span>
+              <div class="save-bar">
+                <button id="test" type="button">Test connection</button>
+                <span class="status" id="test-status"></span>
+              </div>
+            </div>
+            <div class="field">
+              <span class="row__title">Translation cache</span>
+              <span class="row__hint" id="cache-summary">
+                Translations are reused for the same sentence, so a repeat costs nothing.
+              </span>
+              <div class="save-bar">
+                <button id="cache-clear" type="button">Clear cache</button>
+                <span class="status" id="cache-status"></span>
+              </div>
+            </div>
+          </div>
+          <div class="field" id="permission-notice-wrap">
+            <div class="notice">
+              Turning this on asks for permission to contact the provider you pick
+              (<code>api.anthropic.com</code> or <code>api.openai.com</code>). The extension
+              requests no network access otherwise.
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Anki export (optional)</h2>
+        <div class="card">
+          <label class="row">
+            <input type="checkbox" id="ankiEnabled" />
+            <span class="row__text">
+              <span class="row__title">Send saved sentences to Anki</span>
+              <span class="row__hint">
+                Adds cards straight into your own Anki collection over your local network loopback.
+                Needs Anki running with the
+                <a href="https://ankiweb.net/shared/info/2055492159" target="_blank" rel="noopener"
+                  >AnkiConnect</a
+                >
+                add-on. Nothing is sent over the internet.
+              </span>
+            </span>
+          </label>
+          <div id="anki-fields">
+            <div class="field">
+              <div class="notice" id="anki-cors">
+                One-time setup: in Anki, open <b>Tools → Add-ons → AnkiConnect → Config</b> and add
+                this line to <code>webCorsOriginList</code>.
+                <div style="display: flex; gap: 7px; margin-top: 7px">
+                  <input type="text" id="anki-origin" readonly />
+                  <button id="anki-copy" type="button">Copy</button>
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label for="ankiUrl">AnkiConnect address</label>
+              <input type="text" id="ankiUrl" spellcheck="false" />
+              <span class="row__hint">Default is http://127.0.0.1:8765.</span>
+            </div>
+            <div class="field">
+              <label for="ankiDeck">Deck</label>
+              <input id="ankiDeck" list="anki-decks" spellcheck="false" />
+              <datalist id="anki-decks"></datalist>
+              <span class="row__hint">Created automatically if it does not exist yet.</span>
+            </div>
+            <div class="field">
+              <label for="ankiModel">Note type</label>
+              <input id="ankiModel" list="anki-models" spellcheck="false" />
+              <datalist id="anki-models"></datalist>
+            </div>
+            <div class="field">
+              <label for="ankiFrontField">Front field (the Japanese)</label>
+              <input id="ankiFrontField" list="anki-model-fields" spellcheck="false" />
+              <datalist id="anki-model-fields"></datalist>
+              <label for="ankiBackField" style="margin-top: 6px">Back field (reading and meaning)</label>
+              <input id="ankiBackField" list="anki-model-fields" spellcheck="false" />
+            </div>
+            <label class="row">
+              <input type="checkbox" id="ankiFurigana" />
+              <span class="row__text">
+                <span class="row__title">Include furigana on the back of the card</span>
+                <span class="row__hint">
+                  Readings appear above the kanji as ruby text, which the stock note types render
+                  without any template changes. The front of the card stays plain.
+                </span>
+              </span>
+            </label>
+            <div class="field">
+              <label for="ankiTags">Tags</label>
+              <input type="text" id="ankiTags" spellcheck="false" />
+              <span class="row__hint">Comma separated. Spaces inside a tag become hyphens.</span>
+              <div class="save-bar">
+                <button id="anki-test" type="button">Test connection</button>
+                <span class="status" id="anki-status"></span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Engine</h2>
+        <div class="card">
+          <div class="field">
+            <span class="status"><span class="dot" id="engine-dot"></span><span id="engine-text">Checking…</span></span>
+            <span class="row__hint" id="engine-detail"></span>
+          </div>
+        </div>
+        <p class="muted" style="margin-top: 9px">
+          Word segmentation and readings use kuromoji with the IPADIC dictionary (Apache-2.0).
+          Meanings come from JMdict, © the Electronic Dictionary Research and Development Group,
+          used under CC BY-SA 4.0.
+        </p>
+      </section>
+
+      <div class="save-bar">
+        <button class="primary" id="save" type="button">Save</button>
+        <span class="status" id="save-status"></span>
+      </div>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

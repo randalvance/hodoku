@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hodoku</title>
+    <link rel="stylesheet" href="../ui/ui.css" />
+    <style>
+      body { width: 340px; padding: 13px; }
+      header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 11px; }
+      .card + .card, .card + .notice, .notice + .card { margin-top: 11px; }
+      footer { margin-top: 11px; display: flex; justify-content: space-between; align-items: center; }
+      #result { padding: 11px 13px; }
+      #result .romaji { font-size: 16px; font-weight: 600; word-break: break-word; }
+      #result .kana { margin-top: 3px; font-size: 12px; color: var(--fg-muted); word-break: break-word; }
+      #result .meaning { margin-top: 7px; font-size: 13px; color: var(--fg-muted); }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="brand__mark" aria-hidden="true">あ</span>
+        <h1>Hodoku</h1>
+      </div>
+      <span class="status" id="status"><span class="dot" id="status-dot"></span><span id="status-text">Checking…</span></span>
+    </header>
+
+    <p class="muted" id="hint">
+      Select Japanese text on any page, then click the <strong>Romaji</strong> button — or press
+      <strong>Alt+R</strong>.
+    </p>
+
+    <div class="card" style="margin-top: 11px">
+      <div class="field">
+        <label for="scratch">Or paste Japanese here</label>
+        <textarea id="scratch" placeholder="日本語を入力してください" lang="ja"></textarea>
+        <div style="display: flex; gap: 7px">
+          <button class="primary" id="analyze" type="button">Analyse</button>
+          <button id="clear" type="button">Clear</button>
+        </div>
+      </div>
+      <div id="result" class="hidden"></div>
+    </div>
+
+    <div class="card">
+      <label class="row">
+        <input type="checkbox" id="showSelectionButton" />
+        <span class="row__text">
+          <span class="row__title">Show the selection button</span>
+          <span class="row__hint">A small button appears when you highlight Japanese.</span>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="autoAnalyze" />
+        <span class="row__text">
+          <span class="row__title">Analyse automatically</span>
+          <span class="row__hint">Skip the button and open the panel on selection.</span>
+        </span>
+      </label>
+      <label class="row">
+        <input type="checkbox" id="showFurigana" />
+        <span class="row__text">
+          <span class="row__title">Show furigana</span>
+          <span class="row__hint">Readings above kanji in the breakdown.</span>
+        </span>
+      </label>
+    </div>
+
+    <footer>
+      <span class="muted" id="engine"></span>
+      <span style="display: flex; gap: 7px">
+        <button id="review" type="button">Saved <span id="saved-count"></span></button>
+        <button id="options" type="button">Options</button>
+      </span>
+    </footer>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>

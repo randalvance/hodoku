@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hodoku — Saved</title>
+    <link rel="stylesheet" href="../ui/ui.css" />
+    <style>
+      body { padding: 26px 20px 70px; }
+      main { max-width: 760px; margin: 0 auto; }
+      header { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+      header .grow { flex: 1; }
+
+      .toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .toolbar input[type="search"] { flex: 1; min-width: 180px; }
+      .toolbar select { width: auto; }
+
+      .item { border-bottom: 1px solid var(--border); padding: 13px 14px; }
+      .item:last-child { border-bottom: 0; }
+      .item__head { display: flex; align-items: flex-start; gap: 10px; }
+      .item__ja {
+        flex: 1;
+        min-width: 0;
+        font-size: 17px;
+        line-height: 1.7;
+        word-break: break-word;
+      }
+      .item__romaji { margin-top: 3px; font-size: 14px; font-weight: 600; }
+      .item__kana { margin-top: 2px; font-size: 12px; color: var(--fg-muted); }
+      .item__meaning { margin-top: 6px; font-size: 13px; }
+      .item__meaning--gloss { color: var(--fg-muted); }
+      .item__literal {
+        margin-top: 5px;
+        padding-left: 9px;
+        border-left: 2px solid var(--border);
+        font-size: 12.5px;
+        color: var(--fg-muted);
+      }
+      .item__note {
+        margin-top: 6px;
+        padding: 6px 9px;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        font-size: 12.5px;
+        color: var(--fg-muted);
+      }
+      .item__meta {
+        margin-top: 7px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        font-size: 11px;
+        color: var(--fg-faint);
+      }
+      .item__meta a { color: var(--fg-faint); }
+      .item__actions { display: flex; gap: 4px; flex-shrink: 0; }
+      .item__detail { margin-top: 10px; }
+
+      .icon-btn {
+        display: grid;
+        place-items: center;
+        width: 28px;
+        height: 28px;
+        padding: 0;
+        border: 1px solid transparent;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--fg-muted);
+        font-size: 15px;
+        cursor: pointer;
+      }
+      .icon-btn:hover { background: var(--accent-soft); color: var(--fg); }
+
+      .empty { padding: 40px 20px; text-align: center; color: var(--fg-muted); }
+      .empty strong { display: block; margin-bottom: 6px; color: var(--fg); font-size: 15px; }
+
+      /* -------------------------------- study -------------------------------- */
+      .study { padding: 26px 20px; text-align: center; }
+      .study__progress { font-size: 12px; color: var(--fg-faint); margin-bottom: 16px; }
+      .study__ja {
+        font-size: 30px;
+        line-height: 1.6;
+        word-break: break-word;
+        margin-bottom: 18px;
+      }
+      .study__answer { border-top: 1px solid var(--border); padding-top: 16px; margin-top: 6px; }
+      .study__romaji { font-size: 19px; font-weight: 600; }
+      .study__kana { margin-top: 4px; font-size: 13px; color: var(--fg-muted); }
+      .study__meaning { margin-top: 10px; font-size: 15px; color: var(--fg-muted); }
+      .study__buttons { display: flex; justify-content: center; gap: 9px; margin-top: 20px; }
+      .study__done { padding: 40px 20px; text-align: center; }
+
+      .breakdown-row {
+        display: grid;
+        grid-template-columns: minmax(70px, auto) 1fr;
+        gap: 3px 12px;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border);
+      }
+      .breakdown-row:last-child { border-bottom: 0; }
+      .breakdown-row ruby rt { font-size: 0.5em; color: var(--fg-muted); }
+      .breakdown-row .ja { font-size: 17px; line-height: 1.9; }
+      .breakdown-row .ro { font-weight: 600; font-size: 13px; }
+      .breakdown-row .gl { font-size: 12.5px; color: var(--fg-muted); }
+      .breakdown-row .tag {
+        display: inline-block;
+        padding: 1px 6px;
+        border-radius: 5px;
+        background: var(--bg-soft);
+        border: 1px solid var(--border);
+        font-size: 10.5px;
+        font-weight: 600;
+        color: var(--fg-muted);
+        margin-right: 4px;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <span class="brand__mark" aria-hidden="true">あ</span>
+        <div class="grow">
+          <h1>Saved for review</h1>
+          <p class="muted" id="summary">Loading…</p>
+        </div>
+        <button id="study" type="button" class="primary">Study</button>
+      </header>
+
+      <div class="toolbar" id="toolbar">
+        <input type="search" id="search" placeholder="Search Japanese, romaji, or meaning" />
+        <select id="sort">
+          <option value="recent">Newest first</option>
+          <option value="oldest">Oldest first</option>
+          <option value="least">Least reviewed</option>
+        </select>
+        <button id="anki-send" type="button" class="hidden">Send to Anki</button>
+        <button id="export-tsv" type="button">Export TSV</button>
+        <button id="export-json" type="button">Export JSON</button>
+        <button id="clear" type="button">Clear all</button>
+      </div>
+
+      <p class="muted hidden" id="anki-status" style="margin-bottom: 10px"></p>
+      <div class="card" id="list"></div>
+      <div class="card hidden" id="study-view"></div>
+    </main>
+
+    <script type="module" src="review.js"></script>
+  </body>
+</html>

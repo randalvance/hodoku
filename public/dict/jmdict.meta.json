@@ -1,0 +1,12 @@
+{
+  "source": "JMdict via jmdict-simplified",
+  "release": "3.6.2+20260803141815",
+  "asset": "jmdict-eng-3.6.2+20260803141815.json.tgz",
+  "subset": "full",
+  "headwords": 453377,
+  "entries": 212607,
+  "rawBytes": 35281441,
+  "gzipBytes": 9237265,
+  "builtFor": "hodoku",
+  "license": "JMdict is Creative Commons Attribution-ShareAlike 4.0 (EDRDG)"
+}

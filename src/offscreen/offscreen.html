@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Hodoku analysis host</title>
+  </head>
+  <body>
+    <!--
+      No UI. This document exists only to host the analysis Web Worker, which
+      keeps the loaded dictionaries alive between lookups. The service worker
+      is torn down when idle and would otherwise re-parse ~50 MB every time.
+    -->
+    <script type="module" src="offscreen.js"></script>
+  </body>
+</html>
