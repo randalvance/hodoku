@@ -85,7 +85,8 @@ its documented HTTP API is used.
 ## A note on ShareAlike
 
 CC BY-SA 4.0 applies to the JMdict-derived dictionary data, not to this
-project's own source code. Redistributing the compiled dictionary — including
-inside a published extension package — requires keeping the attribution above
-and licensing that data onward under CC BY-SA 4.0. Both conditions are met by
-this repository and by the packaged extension.
+project's own source code, which is MIT-licensed (see LICENSE). Redistributing
+the compiled dictionary — including inside a published extension package —
+requires keeping the attribution above and licensing that data onward under
+CC BY-SA 4.0. Both conditions are met by this repository and by the packaged
+extension.

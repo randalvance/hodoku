@@ -268,9 +268,12 @@ missing key or a rate limit never blocks the rest of the extension.
 
 ## Licences and attribution
 
-The extension bundles two third-party datasets. Both are redistributable, and
-both require attribution, which appears on the options page. See
-[NOTICE.md](NOTICE.md) for the full text.
+**The code in this repository is MIT-licensed** — see [LICENSE](LICENSE).
+
+That covers the code only. The extension also bundles two third-party datasets,
+which keep their own terms and are **not** relicensed by the MIT grant above.
+Both are redistributable, and both require attribution, which appears on the
+options page. See [NOTICE.md](NOTICE.md) for the full text.
 
 - **kuromoji** and **IPADIC** — Apache License 2.0
 - **JMdict** — © Electronic Dictionary Research and Development Group,
@@ -278,3 +281,8 @@ both require attribution, which appears on the options page. See
 
 The two API clients (`@anthropic-ai/sdk`, MIT; `openai`, Apache-2.0) ship in the
 background worker only.
+
+The practical consequence of JMdict's ShareAlike term: you can do what you like
+with this code under MIT, but if you redistribute the compiled dictionary — as
+the packaged extension does — that data must stay under CC BY-SA 4.0 with the
+EDRDG attribution intact.

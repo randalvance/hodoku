@@ -2,6 +2,7 @@
   "name": "hodoku",
   "version": "1.0.0",
   "private": true,
+  "license": "MIT",
   "description": "Chrome extension: highlight Japanese text to get romaji, a word-by-word breakdown, and the meaning.",
   "type": "module",
   "engines": {
