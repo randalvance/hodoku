@@ -129,10 +129,26 @@ policy URL is mandatory because the extension handles an API key.
 | Small promo tile | 440×280 PNG | Optional. Only needed to be considered for featuring. |
 | Marquee promo tile | 1400×560 PNG | Optional. |
 
-At least one screenshot is required. `npm run build:screenshots` renders the
-pages *and* captures them to PNG at exactly 1280×800, so the files are ready to
-upload as-is. The matching `.html` files are kept alongside them if you want to
-tweak the copy and re-shoot.
+At least one screenshot is required; five is the maximum and all five slots are
+filled. `npm run build:screenshots` loads the built extension into a real
+Chrome, drives it — selecting text, opening the panel, saving items, entering
+study mode — and captures each result at exactly 1280×800. Nothing is mocked, so
+a screenshot cannot drift from what the extension actually does.
+
+| File | Shows |
+|---|---|
+| `preview-1-breakdown.png` | The panel over an article: romaji, kana, meaning, word breakdown |
+| `preview-2-particles.png` | Scrolled to the particle rows, with their usage notes |
+| `preview-3-dark.png` | Dark theme, and Hepburn long vowels (Tōkyōeki) |
+| `preview-4-saved.png` | The review list with several saved sentences |
+| `preview-5-study.png` | Flashcard study mode with the answer revealed |
+
+Every shot uses the **offline word-by-word gloss**, not an AI translation — AI
+translation is off by default, so this is what a new user actually sees. Showing
+a fluent model translation would misrepresent the default experience and is the
+kind of thing review takes issue with.
+
+To re-shoot after a UI change: `npm run build && npm run build:screenshots`.
 
 ---
 
