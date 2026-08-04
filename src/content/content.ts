@@ -240,7 +240,7 @@ function showTrigger(rect: DOMRect): void {
     trigger = document.createElement('button');
     trigger.type = 'button';
     trigger.className = 'trigger';
-    trigger.innerHTML = '<span class="mark">あ</span><span>Romaji</span>';
+    trigger.innerHTML = '<span class="mark">ほ</span><span>Romaji</span>';
     trigger.title = 'Show romaji and word breakdown';
     trigger.addEventListener('click', (event) => {
       event.preventDefault();

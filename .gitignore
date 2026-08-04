@@ -26,6 +26,10 @@ public/dict/*.json
 # committed preview-*.png files are the real store assets.
 store/assets/tmp-*
 
+# Candidate marks from `node scripts/icon-options.mjs`. The chosen design is
+# frozen into build-icons.mjs; these are throwaway comparisons.
+store/assets/icon-options/
+
 # Secrets. Nothing in this project should ever hold a real API key — keys live
 # in chrome.storage.local at runtime — but this is the cheap insurance.
 .env

@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hodoku — Japanese Sentence Breakdown",
   "short_name": "Hodoku",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Highlight any Japanese text to see it in romaji, with a word-by-word breakdown, readings, and the meaning.",
   "minimum_chrome_version": "116",
   "icons": {
