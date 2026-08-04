@@ -69,9 +69,9 @@ FOR LEARNERS
 
 Built for anyone reading Japanese above their level: news articles, blog posts, game text, Twitter, novels. If you are working through kanji study and keep hitting words you can nearly read, this fills in the gap without making you leave the page.
 
-OPEN SOURCE
+NO ACCOUNT, NO TRACKING
 
-Source code, build scripts, and the dictionary compilation pipeline are all public.
+There is no sign-up, no analytics, and no telemetry. The extension requests no network access at all when you install it — the only hosts it can ever reach are the ones you explicitly turn on, and it asks for those at the moment you enable them.
 ```
 
 ---
@@ -114,9 +114,21 @@ Certifications (all three must be checked):
 - I do not use or transfer user data for purposes that are unrelated to my item's single purpose
 - I do not use or transfer user data to determine creditworthiness or for lending purposes
 
-**Privacy policy URL:** host `store/PRIVACY.md` somewhere public (a GitHub Pages
-site or the repository's raw URL both work) and paste the link here. A privacy
-policy URL is mandatory because the extension handles an API key.
+**Privacy policy URL:** mandatory, because the extension handles an API key.
+Google fetches this URL anonymously, so it must resolve **without a login**.
+
+If the source repository is private, a link into it will not work — a GitHub
+blob or raw URL on a private repo returns 404 to Google. Publish the contents of
+`store/PRIVACY.md` at one of these instead:
+
+| Option | Command / note |
+|---|---|
+| Public Gist | `gh gist create store/PRIVACY.md --public` — prints the URL |
+| GitHub Pages | A small public repo containing just the policy |
+| Your own site | e.g. a `/hodoku/privacy` page |
+
+Re-publish it whenever the policy changes; the store keeps fetching the live
+URL, not a snapshot taken at review time.
 
 ---
 

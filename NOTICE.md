@@ -90,3 +90,9 @@ the compiled dictionary — including inside a published extension package —
 requires keeping the attribution above and licensing that data onward under
 CC BY-SA 4.0. Both conditions are met by this repository and by the packaged
 extension.
+
+Note that CC BY-SA has no source-disclosure requirement of the kind the GPL has:
+the obligation attaches to the dictionary data, not to the code that reads it.
+Keeping this repository private is therefore compatible with it, because the
+attribution travels with the distributed data — it is rendered on the
+extension's own options page, which every user can see.
