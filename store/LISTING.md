@@ -72,6 +72,12 @@ Built for anyone reading Japanese above their level: news articles, blog posts, 
 NO ACCOUNT, NO TRACKING
 
 There is no sign-up, no analytics, and no telemetry. The extension requests no network access at all when you install it — the only hosts it can ever reach are the ones you explicitly turn on, and it asks for those at the moment you enable them.
+
+OPEN SOURCE
+
+MIT licensed. The source, the build scripts, and the pipeline that compiles the dictionary are all public, so you can read exactly what it does with the text you highlight — or build it yourself:
+
+https://github.com/randalvance/hodoku
 ```
 
 ---
@@ -117,15 +123,16 @@ Certifications (all three must be checked):
 **Privacy policy URL:** mandatory, because the extension handles an API key.
 Google fetches this URL anonymously, so it must resolve **without a login**.
 
-If the source repository is private, a link into it will not work — a GitHub
-blob or raw URL on a private repo returns 404 to Google. Publish the contents of
-`store/PRIVACY.md` at one of these instead:
+The repository is public, so this URL works as-is:
 
-| Option | Command / note |
-|---|---|
-| Public Gist | `gh gist create store/PRIVACY.md --public` — prints the URL |
-| GitHub Pages | A small public repo containing just the policy |
-| Your own site | e.g. a `/hodoku/privacy` page |
+```
+https://github.com/randalvance/hodoku/blob/main/store/PRIVACY.md
+```
+
+If the repository is ever made private, that link starts returning 404 to
+Google and the listing breaks. In that case publish the policy separately —
+`gh gist create store/PRIVACY.md --public`, a GitHub Pages site, or your own
+domain — and update the URL in the dashboard.
 
 Re-publish it whenever the policy changes; the store keeps fetching the live
 URL, not a snapshot taken at review time.

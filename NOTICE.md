@@ -93,6 +93,6 @@ extension.
 
 Note that CC BY-SA has no source-disclosure requirement of the kind the GPL has:
 the obligation attaches to the dictionary data, not to the code that reads it.
-Keeping this repository private is therefore compatible with it, because the
-attribution travels with the distributed data — it is rendered on the
-extension's own options page, which every user can see.
+What it does require is that the attribution travel with the distributed data,
+which it does — it is rendered on the extension's own options page, where every
+user can see it, independently of where the source is hosted.
