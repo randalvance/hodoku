@@ -57,7 +57,7 @@ Japanese does not put spaces between words, so a good breakdown depends on good 
 
 OPTIONAL AI TRANSLATION
 
-If you want a fluent, natural translation of the whole sentence, you can add your own API key in the options — either Anthropic (Claude) or OpenAI (GPT), whichever you already have. This is off by default and completely optional: romaji, readings, and word meanings all work without it. Translations are cached locally, so re-reading the same sentence never costs a second API call — and a Regenerate button lets you ask again, or ask the other provider, whenever an answer is not quite right. The extension only asks for network permission if you turn this on, it only asks for the provider you picked, and your key is stored in your own browser and sent only to that provider.
+If you want a fluent, natural translation of the whole sentence, you can add your own API key in the options — Anthropic (Claude), OpenAI (GPT), or OpenRouter (hundreds of models from many vendors, with one key), whichever you already have. The model list comes live from the provider, so new models show up without an update. This is off by default and completely optional: romaji, readings, and word meanings all work without it. Translations are cached locally, so re-reading the same sentence never costs a second API call — and a Regenerate button lets you ask again, or ask a different provider, whenever an answer is not quite right. The extension only asks for network permission if you turn this on, it only asks for the provider you picked, and your key is stored in your own browser and sent only to that provider.
 
 SAVE WHAT YOU WANT TO REMEMBER
 
@@ -94,12 +94,12 @@ Hodoku converts Japanese text that the user highlights into romaji and shows a w
 
 | Permission | Justification |
 |---|---|
-| `storage` | Stores the user's own settings (romaji style, whether the selection button appears, theme), the sentences they explicitly choose to save for review, a local cache of translations already produced (so the same sentence is not sent twice), and — only if they enable the optional AI translation feature — their own Anthropic and/or OpenAI API key. Nothing is stored remotely. |
+| `storage` | Stores the user's own settings (romaji style, whether the selection button appears, theme), the sentences they explicitly choose to save for review, a local cache of translations already produced (so the same sentence is not sent twice), and — only if they enable the optional AI translation feature — their own Anthropic, OpenAI and/or OpenRouter API key. Nothing is stored remotely. |
 | `offscreen` | The Japanese morphological analyser and its ~26 MB of dictionary data are loaded once into an offscreen document. Service workers are terminated when idle, which would force a full reload of the dictionaries on every lookup and make the extension unusably slow. |
 | `contextMenus` | Adds a single "Show romaji and breakdown" item that appears only when text is selected, as an alternative to the floating button. |
 | Host permission: `<all_urls>` (content script) | The extension's purpose is to explain Japanese text wherever the user encounters it. The content script only reads the text the user has actively selected, and only acts when that selection contains Japanese characters. It does not read page content otherwise, and sends nothing anywhere. |
 | Optional host permissions: `http://127.0.0.1/*`, `http://localhost/*` | Requested at runtime, only if the user turns on the optional Anki export feature. Used solely to reach the AnkiConnect add-on running in Anki on the user's own computer, so saved sentences can become Anki cards. Loopback only — these origins cannot reach any remote server. |
-| Optional host permissions: `https://api.anthropic.com/*`, `https://api.openai.com/*` | Requested at runtime, only if the user turns on the optional AI translation feature, and only for the single provider they select — never both. Used solely to send the selected sentence to that provider's API with the user's own API key. Permission for the other provider is revoked when the user switches. Never requested otherwise. |
+| Optional host permissions: `https://api.anthropic.com/*`, `https://api.openai.com/*`, `https://openrouter.ai/*` | Requested at runtime, only if the user turns on the optional AI translation feature, and only for the single provider they select — never more than one. Used solely to send the selected sentence to that provider's API with the user's own API key, and, on the options page, to fetch that provider's list of available models so the user can pick one. Permission for the other providers is revoked when the user switches. Never requested otherwise. |
 
 **Remote code:** No. All code is included in the package. Nothing is fetched or evaluated at runtime.
 
@@ -108,12 +108,12 @@ Hodoku converts Japanese text that the user highlights into romaji and shows a w
 - Does the extension collect *personally identifiable information*? **No**
 - *Health information*? **No**
 - *Financial and payment information*? **No**
-- *Authentication information*? **Yes** — the user's own Anthropic and/or OpenAI API key, if and only if they choose to enable AI translation. Keys are stored locally in `chrome.storage.local` and each is transmitted only to its own provider (`api.anthropic.com` / `api.openai.com`) to authenticate the user's own requests. They are never sent to the developer or any third party.
+- *Authentication information*? **Yes** — the user's own Anthropic, OpenAI and/or OpenRouter API key, if and only if they choose to enable AI translation. Keys are stored locally in `chrome.storage.local` and each is transmitted only to its own provider (`api.anthropic.com` / `api.openai.com` / `openrouter.ai`) to authenticate the user's own requests. They are never sent to the developer or any third party.
 - *Personal communications*? **No**
 - *Location*? **No**
 - *Web history*? **No**
 - *User activity*? **No**
-- *Website content*? **Yes** — sentences the user explicitly saves for review are stored locally in their own browser (never transmitted anywhere), and, only when AI translation is enabled, the specific text the user selects, is sent to the user's chosen provider (Anthropic or OpenAI) to be translated. With AI translation off (the default), no selected text ever leaves the browser.
+- *Website content*? **Yes** — sentences the user explicitly saves for review are stored locally in their own browser (never transmitted anywhere), and, only when AI translation is enabled, the specific text the user selects, is sent to the user's chosen provider (Anthropic, OpenAI, or OpenRouter) to be translated. With AI translation off (the default), no selected text ever leaves the browser.
 
 Certifications (all three must be checked):
 - I do not sell or transfer user data to third parties, outside of the approved use cases
@@ -177,7 +177,7 @@ To re-shoot after a UI change: `npm run build && npm run build:screenshots`.
 - [ ] `npm run release` — builds icons, dictionary, bundle, runs tests, and zips
 - [ ] Load `dist/` unpacked at `chrome://extensions` and confirm the panel works on a real Japanese page
 - [ ] Confirm the Anki export toggle prompts for loopback permission, and that Test connection succeeds against a running Anki with AnkiConnect
-- [ ] Confirm the AI translation toggle prompts for the selected provider's host permission, that switching provider prompts for the new host and drops the old one, and that declining leaves the rest of the extension working
+- [ ] Confirm the AI translation toggle prompts for the selected provider's host permission, that switching provider prompts for the new host and drops the old one, that the model selector loads each provider's live list (and falls back to suggestions without a key), and that declining leaves the rest of the extension working
 - [ ] Publish the privacy policy at a public URL and paste it into the Privacy tab
 - [ ] Check the item name does not collide with an existing trademark (see the note in `README.md`)
 
