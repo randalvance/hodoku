@@ -116,6 +116,7 @@ input[type="checkbox"] {
 
 select,
 input[type="text"],
+input[type="search"],
 input[type="password"],
 textarea {
   width: 100%;
@@ -188,5 +189,8 @@ button.primary:hover { filter: brightness(1.08); }
 .field { display: flex; flex-direction: column; gap: 5px; padding: 11px 13px; border-bottom: 1px solid var(--border); }
 .field:last-child { border-bottom: 0; }
 .field > label { font-weight: 550; }
+
+.model-row { display: flex; gap: 6px; }
+.model-row select { flex: 1; min-width: 0; }
 
 .hidden { display: none !important; }

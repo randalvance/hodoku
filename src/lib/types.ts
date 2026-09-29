@@ -107,6 +107,8 @@ export interface Settings {
   anthropicModel: string;
   openaiApiKey: string;
   openaiModel: string;
+  openrouterApiKey: string;
+  openrouterModel: string;
   theme: 'auto' | 'light' | 'dark';
 
   /** Send saved sentences to Anki over AnkiConnect. */
@@ -132,6 +134,8 @@ export const DEFAULT_SETTINGS: Settings = {
   anthropicModel: 'claude-opus-5',
   openaiApiKey: '',
   openaiModel: 'gpt-5.4',
+  openrouterApiKey: '',
+  openrouterModel: 'google/gemini-3.8-flash',
   theme: 'auto',
   ankiEnabled: false,
   ankiUrl: DEFAULT_ANKI_CONFIG.url,
@@ -181,14 +185,34 @@ export function migrateSettings(stored: Record<string, unknown>): Partial<Settin
   return patch;
 }
 
+type StringSetting = { [K in keyof Settings]: Settings[K] extends string ? K : never }[keyof Settings];
+
+/** Where each provider's key and model live in settings. */
+const CREDENTIAL_KEYS: Record<ProviderId, { apiKey: StringSetting; model: StringSetting }> = {
+  anthropic: { apiKey: 'anthropicApiKey', model: 'anthropicModel' },
+  openai: { apiKey: 'openaiApiKey', model: 'openaiModel' },
+  openrouter: { apiKey: 'openrouterApiKey', model: 'openrouterModel' },
+};
+
+/** Every setting that holds an API key, for redaction and change detection. */
+export const API_KEY_SETTINGS: StringSetting[] = PROVIDER_IDS.map((id) => CREDENTIAL_KEYS[id].apiKey);
+
 /** The key and model for a provider, defaulting to the selected one. */
 export function credentialsFor(
   settings: Settings,
   provider: ProviderId = settings.provider,
 ): { apiKey: string; model: string } {
-  return provider === 'openai'
-    ? { apiKey: settings.openaiApiKey, model: settings.openaiModel }
-    : { apiKey: settings.anthropicApiKey, model: settings.anthropicModel };
+  const keys = CREDENTIAL_KEYS[provider] ?? CREDENTIAL_KEYS.anthropic;
+  return { apiKey: settings[keys.apiKey], model: settings[keys.model] };
+}
+
+/** The settings patch that stores a key and model for a provider. */
+export function credentialsPatch(
+  provider: ProviderId,
+  credentials: { apiKey: string; model: string },
+): Partial<Settings> {
+  const keys = CREDENTIAL_KEYS[provider];
+  return { [keys.apiKey]: credentials.apiKey, [keys.model]: credentials.model };
 }
 
 /** A provider the user has actually configured a key for. */

@@ -1,12 +1,13 @@
 /**
  * Binds each provider to its API client.
  *
- * Importing this pulls in both SDKs, so only the background service worker
+ * Importing this pulls in the SDKs, so only the background service worker
  * should. Anything that just needs labels or origins imports ./registry.
  */
 
 import { translateWithClaude } from './anthropic';
 import { translateWithOpenAI } from './openai';
+import { translateWithOpenRouter } from './openrouter';
 import type { ProviderId } from './registry';
 import type { TranslationOutput, TranslationRequest } from './shared';
 
@@ -18,6 +19,7 @@ type Translator = (request: TranslationRequest) => Promise<TranslationOutput>;
 const TRANSLATORS: Record<ProviderId, Translator> = {
   anthropic: translateWithClaude,
   openai: translateWithOpenAI,
+  openrouter: translateWithOpenRouter,
 };
 
 export function translatorFor(id: string): Translator {

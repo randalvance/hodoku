@@ -8,6 +8,7 @@
 
 import { containsJapanese } from '../lib/kana';
 import {
+  API_KEY_SETTINGS,
   DEFAULT_SETTINGS,
   type Analysis,
   type AvailableProvider,
@@ -80,7 +81,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if ('showFurigana' in changes) showFurigana = settings.showFurigana;
   if ('theme' in changes) applyTheme();
   // A key or provider edit changes what the regenerate dropdown may offer.
-  if (['anthropicApiKey', 'openaiApiKey', 'aiTranslation'].some((key) => key in changes)) {
+  if ([...API_KEY_SETTINGS, 'aiTranslation'].some((key) => key in changes)) {
     void loadSettings().then((next) => {
       settings = next;
     });

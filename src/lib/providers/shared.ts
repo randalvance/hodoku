@@ -1,7 +1,7 @@
 /**
  * Provider-agnostic pieces of the translation request.
  *
- * Both providers get the same instructions and the same output contract, so the
+ * Every provider gets the same instructions and the same output contract, so the
  * panel renders identically whichever one is configured and switching provider
  * is not a change in behaviour.
  */
@@ -76,13 +76,23 @@ export function buildUserMessage(request: TranslationRequest): string {
   );
 }
 
+/**
+ * A model that ignores the requested JSON format — possible on OpenRouter,
+ * where not every routed provider enforces it — tends to wrap the JSON in a
+ * Markdown fence. Unwrap it rather than fail on an otherwise good answer.
+ */
+function stripCodeFence(text: string): string {
+  const match = /^\s*```(?:json)?\s*\n([\s\S]*?)\n?```\s*$/i.exec(text);
+  return match ? match[1] : text;
+}
+
 /** Parse and validate whatever the model returned. */
 export function parseOutput(raw: string): TranslationOutput {
   if (!raw.trim()) throw new Error('The translation came back empty.');
 
   let parsed: Partial<TranslationOutput>;
   try {
-    parsed = JSON.parse(raw) as Partial<TranslationOutput>;
+    parsed = JSON.parse(stripCodeFence(raw)) as Partial<TranslationOutput>;
   } catch {
     // Structured outputs make this unlikely, but a response truncated by the
     // output-token cap would land here.
