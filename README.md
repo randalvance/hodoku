@@ -227,7 +227,7 @@ The model selector is filled from each provider's own model list (`/v1/models`),
 so it shows exactly what your key can use, including models released after this
 build. The lists are filtered to models that can serve a translation — OpenAI's
 embedding, speech and image models are left out, and OpenRouter's catalogue is
-cut to text models that accept a JSON schema, grouped by vendor with prices. A
+cut to text models that support structured outputs, grouped by vendor with prices. A
 filter box appears for long lists. If the list cannot be loaded (no key yet,
 offline, or a key without list access) the selector falls back to a built-in
 set of suggestions, and **Other…** takes any model id by hand. Keys and models are stored per provider, so switching

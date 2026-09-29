@@ -231,12 +231,15 @@ async function loadModels(force = false): Promise<void> {
 function renderModelSelect(models: ModelOption[], status: string): void {
   const selected = credentials[currentProvider].model;
   const select = fields.apiModel;
+  // A list can land while someone is typing an id by hand. Leave that edit
+  // alone rather than turning a half-typed id into a "not in list" entry.
+  const editingCustom = document.activeElement === fields.modelCustom;
   select.textContent = '';
 
   // A saved model the list does not know (retired, or typed by hand) stays
   // selectable rather than silently changing.
   const list =
-    selected && !models.some((m) => m.id === selected)
+    !editingCustom && selected && !models.some((m) => m.id === selected)
       ? [{ id: selected, label: selected, hint: 'not in list' }, ...models]
       : models;
 
@@ -266,9 +269,13 @@ function renderModelSelect(models: ModelOption[], status: string): void {
   other.textContent = 'Other\u2026';
   select.appendChild(other);
 
-  select.value = selected || OTHER_MODEL;
-  fields.modelCustom.classList.toggle('hidden', select.value !== OTHER_MODEL);
-  fields.modelCustom.value = selected;
+  if (editingCustom) {
+    select.value = OTHER_MODEL;
+  } else {
+    select.value = selected || OTHER_MODEL;
+    fields.modelCustom.classList.toggle('hidden', select.value !== OTHER_MODEL);
+    fields.modelCustom.value = selected;
+  }
   fields.modelFilter.classList.toggle('hidden', list.length <= FILTER_THRESHOLD);
   applyModelFilter();
 
