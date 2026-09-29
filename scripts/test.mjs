@@ -24,6 +24,8 @@ export * from '${path.join(ROOT, 'src/lib/dict.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/analyzer.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/types.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/providers/registry.ts').replaceAll('\\\\', '/')}';
+export { parseOutput } from '${path.join(ROOT, 'src/lib/providers/shared.ts').replaceAll('\\\\', '/')}';
+export * from '${path.join(ROOT, 'src/lib/providers/models.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/saved.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/anki.ts').replaceAll('\\\\', '/')}';
 export * from '${path.join(ROOT, 'src/lib/translation-cache.ts').replaceAll('\\\\', '/')}';

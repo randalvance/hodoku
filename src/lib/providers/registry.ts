@@ -6,7 +6,7 @@
  * add a couple of hundred KB of client code that never runs there.
  */
 
-export type ProviderId = 'anthropic' | 'openai';
+export type ProviderId = 'anthropic' | 'openai' | 'openrouter';
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -51,6 +51,22 @@ export const PROVIDERS: Record<ProviderId, ProviderInfo> = {
       { id: 'gpt-5.4-nano', hint: 'fastest, cheapest' },
       { id: 'gpt-5.2', hint: 'previous generation' },
       { id: 'gpt-5.1', hint: 'previous generation' },
+    ],
+  },
+  openrouter: {
+    id: 'openrouter',
+    label: 'OpenRouter',
+    origin: 'https://openrouter.ai/*',
+    consoleUrl: 'https://openrouter.ai/settings/keys',
+    keyPlaceholder: 'sk-or-v1-\u2026',
+    defaultModel: 'google/gemini-3.8-flash',
+    // OpenRouter routes to hundreds of models; these are a starting point.
+    suggestedModels: [
+      { id: 'google/gemini-3.8-flash', hint: 'fast, cheap' },
+      { id: 'anthropic/claude-sonnet-5.5', hint: 'balanced' },
+      { id: 'anthropic/claude-opus-5.5', hint: 'most capable' },
+      { id: 'deepseek/deepseek-v4.1-flash', hint: 'fast, cheap' },
+      { id: 'qwen/qwen3.8-flash', hint: 'fast, cheap' },
     ],
   },
 };

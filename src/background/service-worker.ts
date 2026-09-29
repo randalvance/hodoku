@@ -4,6 +4,7 @@
  */
 
 import {
+  API_KEY_SETTINGS,
   DEFAULT_SETTINGS,
   ankiConfigFor,
   availableProviders,
@@ -441,7 +442,7 @@ type BackgroundMessage =
 
 /** Settings with the API keys stripped, for contexts that must not see them. */
 function redactKeys(settings: Settings): Settings {
-  return { ...settings, anthropicApiKey: '', openaiApiKey: '' };
+  return { ...settings, ...Object.fromEntries(API_KEY_SETTINGS.map((key) => [key, ''])) };
 }
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: string }, sender, sendResponse) => {

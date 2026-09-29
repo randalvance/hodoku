@@ -143,7 +143,7 @@ is worth doing before publishing.
 lengthen review. It is genuinely required — the point is to explain Japanese
 wherever you meet it — and the justification in `store/LISTING.md` says so. The
 extension requests no host permissions at install time; a provider host
-(`api.anthropic.com` or `api.openai.com`) is requested at runtime only if you
+(`api.anthropic.com`, `api.openai.com`, or `openrouter.ai`) is requested at runtime only if you
 turn on AI translation, and only for the provider you selected.
 
 ## Saving for review
@@ -214,21 +214,34 @@ Off by default and not required for anything else. When enabled, the background
 service worker calls the selected provider with the user's own key and asks for
 a fluent translation, a literal rendering, and one grammar note.
 
-Two providers are supported, and they are interchangeable — same prompt, same
+Three providers are supported, and they are interchangeable — same prompt, same
 JSON output contract, so the panel looks identical either way:
 
 | Provider | API | Default model |
 | --- | --- | --- |
 | Claude (Anthropic) | Messages API, structured outputs, low effort | `claude-opus-5` |
 | GPT (OpenAI) | Responses API, strict JSON schema, low reasoning effort | `gpt-5.4` |
+| OpenRouter | Chat Completions, JSON schema response format, low reasoning effort | `google/gemini-3.8-flash` |
 
-The model field is free text with suggestions, so a model released after this
-build can still be used. Keys and models are stored per provider, so switching
+The model selector is filled from each provider's own model list (`/v1/models`),
+so it shows exactly what your key can use, including models released after this
+build. The lists are filtered to models that can serve a translation — OpenAI's
+embedding, speech and image models are left out, and OpenRouter's catalogue is
+cut to text models that accept a JSON schema, grouped by vendor with prices. A
+filter box appears for long lists. If the list cannot be loaded (no key yet,
+offline, or a key without list access) the selector falls back to a built-in
+set of suggestions, and **Other…** takes any model id by hand. Keys and models are stored per provider, so switching
 back and forth does not lose anything.
 
+OpenRouter gives one key access to models from many vendors; the model field
+takes any OpenRouter slug (`vendor/model`). Not every model it routes to
+enforces the JSON schema, so a reply wrapped in a Markdown code fence is
+unwrapped rather than rejected.
+
 Host permission is requested **only for the provider in use**, at the moment it
-is enabled, and the other provider's permission is revoked on switch. Adding a
-third provider means one entry in `src/lib/providers/`.
+is enabled, and the other providers' permissions are revoked on switch. Adding
+another provider means a module in `src/lib/providers/`, a registry entry, and
+a key/model pair in settings.
 
 ### Caching
 

@@ -3,10 +3,11 @@
  * script and service worker both watch.
  */
 
+import { listModels, listingNeedsKey, type ModelOption } from '../lib/providers/models';
 import { getProvider, PROVIDER_IDS, PROVIDERS, type ProviderId } from '../lib/providers/registry';
 import { kanaToRomaji, type RomajiStyle } from '../lib/romaji';
 import { ANKI_ORIGINS } from '../lib/anki';
-import { DEFAULT_SETTINGS, type Settings } from '../lib/types';
+import { DEFAULT_SETTINGS, credentialsFor, credentialsPatch, type Settings } from '../lib/types';
 
 /** Words that show the difference between the four romaji styles. */
 const PREVIEW_WORDS: Array<{ label: string; written: string; spoken: string }> = [
@@ -21,7 +22,9 @@ const fields = {
   romajiStyle: $<HTMLSelectElement>('romajiStyle'),
   theme: $<HTMLSelectElement>('theme'),
   provider: $<HTMLSelectElement>('provider'),
-  apiModel: $<HTMLInputElement>('apiModel'),
+  apiModel: $<HTMLSelectElement>('apiModel'),
+  modelFilter: $<HTMLInputElement>('model-filter'),
+  modelCustom: $<HTMLInputElement>('model-custom'),
   apiKey: $<HTMLInputElement>('apiKey'),
   showFurigana: $<HTMLInputElement>('showFurigana'),
   showSelectionButton: $<HTMLInputElement>('showSelectionButton'),
@@ -41,10 +44,9 @@ const fields = {
  * Per-provider key and model live here while the page is open, so switching
  * provider does not wipe what was typed for the other one.
  */
-const credentials: Record<ProviderId, { apiKey: string; model: string }> = {
-  anthropic: { apiKey: '', model: PROVIDERS.anthropic.defaultModel },
-  openai: { apiKey: '', model: PROVIDERS.openai.defaultModel },
-};
+const credentials = Object.fromEntries(
+  PROVIDER_IDS.map((id) => [id, { apiKey: '', model: PROVIDERS[id].defaultModel }]),
+) as Record<ProviderId, { apiKey: string; model: string }>;
 
 let currentProvider: ProviderId = 'anthropic';
 
@@ -72,14 +74,10 @@ async function init(): Promise<void> {
   // at runtime.
   $<HTMLInputElement>('anki-origin').value = `chrome-extension://${chrome.runtime.id}`;
 
-  credentials.anthropic = {
-    apiKey: settings.anthropicApiKey,
-    model: settings.anthropicModel || PROVIDERS.anthropic.defaultModel,
-  };
-  credentials.openai = {
-    apiKey: settings.openaiApiKey,
-    model: settings.openaiModel || PROVIDERS.openai.defaultModel,
-  };
+  for (const id of PROVIDER_IDS) {
+    const saved = credentialsFor(settings, id);
+    credentials[id] = { apiKey: saved.apiKey, model: saved.model || PROVIDERS[id].defaultModel };
+  }
 
   currentProvider = PROVIDER_IDS.includes(settings.provider) ? settings.provider : 'anthropic';
   fields.provider.value = currentProvider;
@@ -92,9 +90,15 @@ async function init(): Promise<void> {
   fields.apiKey.addEventListener('input', () => {
     credentials[currentProvider].apiKey = fields.apiKey.value;
   });
-  fields.apiModel.addEventListener('input', () => {
-    credentials[currentProvider].model = fields.apiModel.value;
+  // A new key can unlock a different model list.
+  fields.apiKey.addEventListener('change', () => void loadModels());
+  fields.apiModel.addEventListener('change', onModelPicked);
+  fields.modelCustom.addEventListener('input', () => {
+    credentials[currentProvider].model = fields.modelCustom.value;
+    renderModelHint();
   });
+  fields.modelFilter.addEventListener('input', applyModelFilter);
+  $('model-refresh').addEventListener('click', () => void loadModels(true));
 
   fields.ankiEnabled.addEventListener('change', () => void onAnkiToggled());
   fields.ankiModel.addEventListener('change', () => void loadAnkiFields());
@@ -142,7 +146,6 @@ function renderProvider(): void {
 
   fields.apiKey.value = saved.apiKey;
   fields.apiKey.placeholder = provider.keyPlaceholder;
-  fields.apiModel.value = saved.model;
 
   $('key-label').textContent = `${provider.label} API key`;
   $('key-host').textContent = new URL(provider.origin.replace('/*', '')).host;
@@ -151,18 +154,163 @@ function renderProvider(): void {
   link.href = provider.consoleUrl;
   link.textContent = new URL(provider.consoleUrl).host;
 
-  const list = $('model-suggestions');
-  list.textContent = '';
-  for (const { id, hint } of provider.suggestedModels) {
-    const option = document.createElement('option');
-    option.value = id;
-    option.label = hint;
-    list.appendChild(option);
+  fields.modelFilter.value = '';
+  void loadModels();
+}
+
+/* ---------- Model selector ---------- */
+
+/** Select value that reveals the free-text field. */
+const OTHER_MODEL = '__other__';
+/** Past this many models, the list gets a filter box. */
+const FILTER_THRESHOLD = 15;
+
+/** Fetched lists, so switching provider back and forth does not refetch. */
+const modelCache = new Map<string, ModelOption[]>();
+let modelAbort: AbortController | null = null;
+let modelStatus = '';
+
+function suggestedModels(id: ProviderId): ModelOption[] {
+  return getProvider(id).suggestedModels.map(({ id: model, hint }) => ({ id: model, label: model, hint }));
+}
+
+/**
+ * Fill the selector from the provider's own model list. Falls back to the
+ * suggestions this build ships with whenever the list cannot be had — no key
+ * yet, offline, or a key without list access — so the field is never empty.
+ */
+async function loadModels(force = false): Promise<void> {
+  const id = currentProvider;
+  const provider = getProvider(id);
+  const apiKey = credentials[id].apiKey.trim();
+  const host = new URL(provider.origin.replace('/*', '')).host;
+
+  modelAbort?.abort();
+  modelAbort = null;
+
+  // No host permission until AI translation is on, and no point asking then.
+  if (!fields.aiTranslation.checked) {
+    renderModelSelect(suggestedModels(id), 'Showing suggestions.');
+    return;
+  }
+  if (listingNeedsKey(id) && !apiKey) {
+    renderModelSelect(suggestedModels(id), `Enter an API key to load the full list from ${host}.`);
+    return;
   }
 
-  $('model-hint').textContent =
-    `Suggestions come from the list this build knows about — any model your account can use ` +
-    `can be typed in. Default: ${provider.defaultModel}.`;
+  // OpenRouter's catalogue is the same for everyone; the others depend on the key.
+  const cacheKey = listingNeedsKey(id) ? `${id}\n${apiKey}` : id;
+  const cached = modelCache.get(cacheKey);
+  if (cached && !force) {
+    renderModelSelect(cached, `${cached.length} models from ${host}.`);
+    return;
+  }
+
+  const controller = new AbortController();
+  modelAbort = controller;
+  renderModelSelect(cached ?? suggestedModels(id), `Loading models from ${host}\u2026`);
+
+  try {
+    const models = await listModels(id, apiKey, controller.signal);
+    if (controller.signal.aborted || id !== currentProvider) return;
+    if (!models.length) throw new Error('no usable models came back');
+    modelCache.set(cacheKey, models);
+    renderModelSelect(models, `${models.length} models from ${host}.`);
+  } catch (err) {
+    if (controller.signal.aborted || id !== currentProvider) return;
+    const reason = (err as Error)?.message ?? String(err);
+    renderModelSelect(
+      suggestedModels(id),
+      `Could not load the model list (${reason.replace(/\.$/, '')}). Showing suggestions.`,
+    );
+  } finally {
+    if (modelAbort === controller) modelAbort = null;
+  }
+}
+
+function renderModelSelect(models: ModelOption[], status: string): void {
+  const selected = credentials[currentProvider].model;
+  const select = fields.apiModel;
+  select.textContent = '';
+
+  // A saved model the list does not know (retired, or typed by hand) stays
+  // selectable rather than silently changing.
+  const list =
+    selected && !models.some((m) => m.id === selected)
+      ? [{ id: selected, label: selected, hint: 'not in list' }, ...models]
+      : models;
+
+  const groups = new Map<string, HTMLOptGroupElement>();
+  for (const model of list) {
+    const option = document.createElement('option');
+    option.value = model.id;
+    option.textContent = model.hint ? `${model.label} \u00b7 ${model.hint}` : model.label;
+    option.title = model.id;
+
+    if (!model.group) {
+      select.appendChild(option);
+      continue;
+    }
+    let group = groups.get(model.group);
+    if (!group) {
+      group = document.createElement('optgroup');
+      group.label = model.group;
+      groups.set(model.group, group);
+      select.appendChild(group);
+    }
+    group.appendChild(option);
+  }
+
+  const other = document.createElement('option');
+  other.value = OTHER_MODEL;
+  other.textContent = 'Other\u2026';
+  select.appendChild(other);
+
+  select.value = selected || OTHER_MODEL;
+  fields.modelCustom.classList.toggle('hidden', select.value !== OTHER_MODEL);
+  fields.modelCustom.value = selected;
+  fields.modelFilter.classList.toggle('hidden', list.length <= FILTER_THRESHOLD);
+  applyModelFilter();
+
+  modelStatus = status;
+  renderModelHint();
+}
+
+function onModelPicked(): void {
+  const custom = fields.apiModel.value === OTHER_MODEL;
+  fields.modelCustom.classList.toggle('hidden', !custom);
+  if (custom) {
+    fields.modelCustom.value = credentials[currentProvider].model;
+    fields.modelCustom.focus();
+  } else {
+    credentials[currentProvider].model = fields.apiModel.value;
+  }
+  renderModelHint();
+}
+
+/** Hide options that do not match the filter; the current choice always stays. */
+function applyModelFilter(): void {
+  const query = fields.modelFilter.value.trim().toLowerCase();
+  const select = fields.apiModel;
+  for (const option of Array.from(select.options)) {
+    const keep =
+      !query ||
+      option.selected ||
+      option.value === OTHER_MODEL ||
+      option.value.toLowerCase().includes(query) ||
+      (option.textContent ?? '').toLowerCase().includes(query);
+    option.hidden = !keep;
+  }
+  for (const group of Array.from(select.querySelectorAll('optgroup'))) {
+    group.hidden = Array.from(group.children).every((child) => (child as HTMLOptionElement).hidden);
+  }
+}
+
+function renderModelHint(): void {
+  const model = credentials[currentProvider].model.trim();
+  $('model-hint').textContent = [model ? `Model id: ${model}.` : '', modelStatus]
+    .filter(Boolean)
+    .join(' ');
 }
 
 function updateAiVisibility(): void {
@@ -191,6 +339,7 @@ async function onAiToggled(): Promise<void> {
     setStatus($('save-status'), 'warn', 'Permission for the provider host was declined.');
   }
   updateAiVisibility();
+  if (fields.aiTranslation.checked) void loadModels();
 }
 
 async function onProviderChanged(): Promise<void> {
@@ -222,10 +371,15 @@ function collectSettings(): Partial<Settings> {
     romajiStyle: fields.romajiStyle.value as RomajiStyle,
     theme: fields.theme.value as Settings['theme'],
     provider: currentProvider,
-    anthropicApiKey: credentials.anthropic.apiKey.trim(),
-    anthropicModel: credentials.anthropic.model.trim() || PROVIDERS.anthropic.defaultModel,
-    openaiApiKey: credentials.openai.apiKey.trim(),
-    openaiModel: credentials.openai.model.trim() || PROVIDERS.openai.defaultModel,
+    ...Object.assign(
+      {},
+      ...PROVIDER_IDS.map((id) =>
+        credentialsPatch(id, {
+          apiKey: credentials[id].apiKey.trim(),
+          model: credentials[id].model.trim() || PROVIDERS[id].defaultModel,
+        }),
+      ),
+    ),
     showFurigana: fields.showFurigana.checked,
     showSelectionButton: fields.showSelectionButton.checked,
     autoAnalyze: fields.autoAnalyze.checked,

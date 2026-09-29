@@ -117,9 +117,10 @@
               <select id="provider">
                 <option value="anthropic">Claude (Anthropic)</option>
                 <option value="openai">GPT (OpenAI)</option>
+                <option value="openrouter">OpenRouter</option>
               </select>
               <span class="row__hint">
-                Both produce the same panel. Keys and models are remembered separately, so you can
+                All produce the same panel. Keys and models are remembered separately, so you can
                 switch back and forth without re-entering anything.
               </span>
             </div>
@@ -134,8 +135,28 @@
             </div>
             <div class="field">
               <label for="apiModel">Model</label>
-              <input id="apiModel" list="model-suggestions" autocomplete="off" spellcheck="false" />
-              <datalist id="model-suggestions"></datalist>
+              <input
+                type="search"
+                id="model-filter"
+                class="hidden"
+                placeholder="Filter models…"
+                aria-label="Filter models"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="model-row">
+                <select id="apiModel"></select>
+                <button id="model-refresh" type="button" title="Reload the model list">Refresh</button>
+              </div>
+              <input
+                type="text"
+                id="model-custom"
+                class="hidden"
+                placeholder="Model id"
+                aria-label="Model id"
+                autocomplete="off"
+                spellcheck="false"
+              />
               <span class="row__hint" id="model-hint"></span>
               <div class="save-bar">
                 <button id="test" type="button">Test connection</button>
@@ -156,7 +177,8 @@
           <div class="field" id="permission-notice-wrap">
             <div class="notice">
               Turning this on asks for permission to contact the provider you pick
-              (<code>api.anthropic.com</code> or <code>api.openai.com</code>). The extension
+              (<code>api.anthropic.com</code>, <code>api.openai.com</code>, or
+              <code>openrouter.ai</code>). The extension
               requests no network access otherwise.
             </div>
           </div>

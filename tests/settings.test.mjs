@@ -9,16 +9,18 @@ import {
   credentialsFor,
   getProvider,
   migrateSettings,
+  parseOutput,
 } from '../.cache/lib.mjs';
 
 describe('provider registry', () => {
-  it('offers both providers', () => {
-    assert.deepEqual(PROVIDER_IDS.sort(), ['anthropic', 'openai']);
+  it('offers every provider', () => {
+    assert.deepEqual([...PROVIDER_IDS].sort(), ['anthropic', 'openai', 'openrouter']);
   });
 
   it('gives each provider its own host permission', () => {
     assert.equal(PROVIDERS.anthropic.origin, 'https://api.anthropic.com/*');
     assert.equal(PROVIDERS.openai.origin, 'https://api.openai.com/*');
+    assert.equal(PROVIDERS.openrouter.origin, 'https://openrouter.ai/*');
   });
 
   it('declares a default model that is also a suggestion', () => {
@@ -45,7 +47,16 @@ describe('credentialsFor', () => {
     anthropicModel: 'claude-opus-5',
     openaiApiKey: 'sk-openai-key',
     openaiModel: 'gpt-5.4',
+    openrouterApiKey: 'sk-or-key',
+    openrouterModel: 'deepseek/deepseek-v4.1-flash',
   };
+
+  it('reads the OpenRouter pair when OpenRouter is selected', () => {
+    assert.deepEqual(credentialsFor({ ...base, provider: 'openrouter' }), {
+      apiKey: 'sk-or-key',
+      model: 'deepseek/deepseek-v4.1-flash',
+    });
+  });
 
   it('reads the Anthropic pair when Claude is selected', () => {
     assert.deepEqual(credentialsFor({ ...base, provider: 'anthropic' }), {
@@ -104,11 +115,13 @@ describe('defaults', () => {
     assert.equal(DEFAULT_SETTINGS.aiTranslation, false);
     assert.equal(DEFAULT_SETTINGS.anthropicApiKey, '');
     assert.equal(DEFAULT_SETTINGS.openaiApiKey, '');
+    assert.equal(DEFAULT_SETTINGS.openrouterApiKey, '');
   });
 
   it('defaults each provider to its registry default', () => {
     assert.equal(DEFAULT_SETTINGS.anthropicModel, PROVIDERS.anthropic.defaultModel);
     assert.equal(DEFAULT_SETTINGS.openaiModel, PROVIDERS.openai.defaultModel);
+    assert.equal(DEFAULT_SETTINGS.openrouterModel, PROVIDERS.openrouter.defaultModel);
   });
 });
 
@@ -179,5 +192,22 @@ describe('credentialsFor with an explicit provider', () => {
       apiKey: 'sk-oai',
       model: 'gpt-5.4',
     });
+  });
+});
+
+describe('parseOutput', () => {
+  const json = '{"translation":"I like cats.","literal":"cats-as-for liked is","note":""}';
+
+  it('reads plain JSON', () => {
+    assert.equal(parseOutput(json).translation, 'I like cats.');
+  });
+
+  it('unwraps a Markdown-fenced answer from a model that ignored the format', () => {
+    assert.equal(parseOutput('```json\n' + json + '\n```').translation, 'I like cats.');
+    assert.equal(parseOutput('```\n' + json + '\n```\n').translation, 'I like cats.');
+  });
+
+  it('still rejects something that is not JSON', () => {
+    assert.throws(() => parseOutput('I like cats.'), /Could not read/);
   });
 });
