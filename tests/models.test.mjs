@@ -104,6 +104,11 @@ describe('normalizeOpenRouterModels', () => {
       },
       { id: 'old/no-json', name: 'Old: No JSON', supported_parameters: ['max_tokens'] },
       {
+        id: 'mode/json-only',
+        name: 'Mode: JSON Only',
+        supported_parameters: ['max_tokens', 'response_format'],
+      },
+      {
         id: 'image/only',
         name: 'Image: Only',
         supported_parameters: structured,
@@ -112,7 +117,7 @@ describe('normalizeOpenRouterModels', () => {
     ],
   });
 
-  it('drops batch variants, models without JSON output, and non-text models', () => {
+  it('drops batch variants, models without structured outputs, and non-text models', () => {
     assert.deepEqual(
       list.map((m) => m.id),
       [

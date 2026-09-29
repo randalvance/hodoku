@@ -124,8 +124,9 @@ interface OpenRouterModel {
 }
 
 /**
- * Keep models that produce text and accept a JSON-schema response format —
- * the translation relies on it — and drop `:batch` variants, which are for
+ * Keep models that produce text and support structured outputs — the
+ * translation always sends a strict `json_schema` response format, which
+ * `response_format` alone (plain JSON mode) does not promise — and drop `:batch` variants, which are for
  * asynchronous bulk jobs rather than a request someone is waiting on.
  */
 export function normalizeOpenRouterModels(json: unknown): ModelOption[] {
@@ -135,7 +136,7 @@ export function normalizeOpenRouterModels(json: unknown): ModelOption[] {
     .filter((m) => !m.id.endsWith(':batch'))
     .filter((m) => {
       const params = Array.isArray(m.supported_parameters) ? m.supported_parameters : [];
-      return params.includes('response_format') || params.includes('structured_outputs');
+      return params.includes('structured_outputs');
     })
     .filter((m) => {
       const out = m.architecture?.output_modalities;
