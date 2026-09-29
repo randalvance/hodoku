@@ -1,6 +1,6 @@
 # Privacy Policy — Hodoku
 
-_Last updated: 3 August 2026_
+_Last updated: 29 September 2026_
 
 ## The short version
 
@@ -23,7 +23,7 @@ never transmitted to the developer:
   unless you click the bookmark or use "Save for review".
 - Translations already produced, cached locally so the same sentence is not sent
   to a provider twice. Clearing the cache is a button in the options page.
-- Your Anthropic and/or OpenAI API key — **only** if you enable AI translation and
+- Your Anthropic, OpenAI and/or OpenRouter API key — **only** if you enable AI translation and
   enter one. Keys are stored per provider so switching between them does not
   require re-entering anything.
 
@@ -42,9 +42,10 @@ track which pages you visit.
 permissions at install time. The Japanese dictionaries are bundled in the
 package, so analysis is fully offline.
 
-**If you enable AI translation:** you choose a provider — Claude (Anthropic) or
-GPT (OpenAI) — and Chrome asks you to grant permission for that provider's host
-(`https://api.anthropic.com` or `https://api.openai.com`). Permission is
+**If you enable AI translation:** you choose a provider — Claude (Anthropic),
+GPT (OpenAI), or OpenRouter — and Chrome asks you to grant permission for that
+provider's host (`https://api.anthropic.com`, `https://api.openai.com`, or
+`https://openrouter.ai`). Permission is
 requested for the selected provider only, and the other one is revoked when you
 switch. If you accept, then each time you analyse a selection the extension
 sends the following to that provider's API, authenticated with your own API key:
@@ -58,6 +59,15 @@ governed by their own terms and privacy policy, which apply to your account:
 
 - Anthropic — <https://www.anthropic.com/legal/privacy>
 - OpenAI — <https://openai.com/policies/privacy-policy>
+- OpenRouter — <https://openrouter.ai/privacy>
+
+OpenRouter is a gateway: it passes the request on to the company behind the
+model you picked, whose own terms then also apply.
+
+While AI translation is on, the options page also asks the selected provider
+for its list of available models, so you can pick one. That request carries
+your API key for Anthropic and OpenAI, and nothing at all for OpenRouter, whose
+model list is public. No text of yours is included.
 
 Requests are sent with storage disabled where the provider supports it, and the
 extension never sends your data to more than the one provider you selected.
