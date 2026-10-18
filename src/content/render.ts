@@ -165,8 +165,21 @@ function aiFieldsBadge(analysis: Analysis): HTMLElement {
   return badge;
 }
 
-/** Everything between the header and the footer. */
+/**
+ * Everything between the header and the footer, as two columns: the reading
+ * and meaning, then the breakdown. The body that holds them lays them out
+ * side by side when there is room and stacks them otherwise.
+ */
 export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+  const main = el('div', 'panel__main');
+  const side = el('div', 'panel__side');
+  for (const node of renderMain(analysis, options)) main.appendChild(node);
+  for (const node of renderBreakdown(analysis, options)) side.appendChild(node);
+  return [main, side];
+}
+
+/** The reading, the meaning, and any warnings. */
+function renderMain(analysis: Analysis, options: RenderOptions): HTMLElement[] {
   const nodes: HTMLElement[] = [];
 
   const romaji = el('div', 'romaji');
@@ -232,6 +245,13 @@ export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElem
     }
     nodes.push(wrap);
   }
+
+  return nodes;
+}
+
+/** The word-by-word breakdown with its heading. */
+function renderBreakdown(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+  const nodes: HTMLElement[] = [];
 
   const breakdownLabel = el('div', 'section');
   breakdownLabel.style.paddingBottom = '0';

@@ -21,6 +21,10 @@ export const PANEL_STYLES = /* css */ `
   --rr-warn-bg: #fff7ed;
   --rr-warn-fg: #9a3412;
   --rr-shadow: 0 12px 32px -8px rgba(16, 18, 27, 0.22), 0 2px 8px rgba(16, 18, 27, 0.08);
+  /* The extension icon's gradient (scripts/build-icons.mjs), so the mark on
+     the trigger is recognisably the same thing. Fixed, not themed: in dark
+     mode the accent turns pale, and the icon does not. */
+  --rr-mark: linear-gradient(180deg, #635bff, #4633d9);
 
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
@@ -73,7 +77,7 @@ export const PANEL_STYLES = /* css */ `
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: var(--rr-accent);
+  background: var(--rr-mark);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -90,7 +94,7 @@ export const PANEL_STYLES = /* css */ `
 .panel {
   position: fixed;
   z-index: 2147483647;
-  width: 400px;
+  width: 760px;
   max-width: calc(100vw - 24px);
   max-height: min(70vh, 620px);
   display: flex;
@@ -148,6 +152,35 @@ export const PANEL_STYLES = /* css */ `
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 0 8px;
+}
+
+/* A finished analysis splits into two columns that scroll independently:
+   reading and meaning on the left, the breakdown on the right. The header
+   above spans both. */
+.panel__body--split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0;
+}
+
+.panel__main, .panel__side {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.panel__side { border-left: 1px solid var(--rr-border); }
+
+/* Too narrow for two columns: stack them and scroll the body as one. */
+@media (max-width: 800px) {
+  .panel { width: 400px; }
+  .panel__body--split { display: block; overflow-y: auto; }
+  .panel__main, .panel__side { overflow: visible; }
+  .panel__side { border-left: 0; }
 }
 
 /* --------------------------------- romaji --------------------------------- */

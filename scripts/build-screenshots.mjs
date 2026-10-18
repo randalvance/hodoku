@@ -261,14 +261,14 @@ async function main() {
             ?.textContent?.length > 0,
         { timeout: 90_000, polling: 250 },
       );
-      // The breakdown scrolls inside the panel. Scrolling to the rows a caption
-      // is talking about is what a user would do, and keeps the claim honest.
+      // The breakdown scrolls inside its own column of the panel. Scrolling to
+      // the rows a caption is talking about is what a user would do, and keeps
+      // the claim honest.
       if (scrollBody) {
         await page.evaluate((offset) => {
-          const body = document
-            .getElementById('hodoku-host')
-            .shadowRoot.querySelector('.panel__body');
-          body.scrollTop = offset;
+          const shadow = document.getElementById('hodoku-host').shadowRoot;
+          const column = shadow.querySelector('.panel__side') ?? shadow.querySelector('.panel__body');
+          column.scrollTop = offset;
         }, scrollBody);
       }
       // Let the panel settle into its final position before capturing.

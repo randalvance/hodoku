@@ -76,7 +76,8 @@ a { color: var(--accent); }
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: var(--accent);
+  /* The icon's gradient, fixed across themes, like the mark on the trigger. */
+  background: linear-gradient(180deg, #635bff, #4633d9);
   color: #fff;
   font-size: 14px;
   font-weight: 700;

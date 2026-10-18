@@ -372,7 +372,7 @@ function renderPanel(view: PanelState): void {
   panel.textContent = '';
   panel.appendChild(buildHead(view));
 
-  const body = el('div', 'panel__body');
+  const body = el('div', view.state === 'done' ? 'panel__body panel__body--split' : 'panel__body');
   if (view.state === 'loading') {
     body.appendChild(loadingState());
   } else if (view.state === 'error') {
