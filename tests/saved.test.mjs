@@ -398,4 +398,36 @@ describe('updateTranslation', () => {
     });
     assert.equal(updated.translationSource, 'ai');
   });
+
+  it('refreshes the stored reading when one is given', async () => {
+    // With AI standard fields on, a regenerate can change the romaji and
+    // kana; the record must follow, since exports and cards read them from it.
+    await saveAnalysis(analysis('猫が好きです'));
+    const updated = await updateTranslation('猫が好きです', snapshot, {
+      romaji: 'Neko ga suki desu.',
+      kana: 'ねこがすきです',
+    });
+    assert.equal(updated.romaji, 'Neko ga suki desu.');
+    assert.equal(updated.kana, 'ねこがすきです');
+    const stored = (await listSaved())[0];
+    assert.equal(stored.romaji, 'Neko ga suki desu.', 'the reading was not written');
+    assert.equal(stored.translation, 'A regenerated translation.');
+  });
+
+  it('refreshes the reading even when the meaning would be a downgrade', async () => {
+    await saveAnalysis(analysis('猫が好きです'));
+    const updated = await updateTranslation(
+      '猫が好きです',
+      { translation: 'a gloss', translationSource: 'gloss' },
+      { romaji: 'Neko ga suki desu.', kana: 'ねこがすきです' },
+    );
+    assert.equal(updated.translationSource, 'ai', 'the meaning was downgraded');
+    assert.equal((await listSaved())[0].romaji, 'Neko ga suki desu.');
+  });
+
+  it('leaves the reading alone when none is given', async () => {
+    await saveAnalysis(analysis('猫が好きです'));
+    await updateTranslation('猫が好きです', snapshot);
+    assert.equal((await listSaved())[0].romaji, 'Nihongo o benkyō shite imasu.');
+  });
 });

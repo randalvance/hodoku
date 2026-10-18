@@ -166,27 +166,45 @@ export async function saveAnalysis(analysis: Analysis, source: SaveSource = {}):
   return { item, created: true, total: Math.min(next.length, MAX_ITEMS) };
 }
 
+/** The reading as the panel showed it; refreshed whenever the sentence is re-analysed. */
+export interface ReadingSnapshot {
+  romaji: string;
+  kana: string;
+}
+
 /**
  * Replace the stored meaning for a sentence, if it is saved.
  *
  * Used after a regenerate so the saved card reflects the translation the user
- * just asked for. Subject to the same no-downgrade rule as saving.
+ * just asked for. Subject to the same no-downgrade rule as saving. The
+ * reading, when given, always refreshes — with the standard-fields option on
+ * a regenerate can change the romaji and kana too, and the review list, study
+ * mode, exports and Anki cards all read them from the record.
  */
 export async function updateTranslation(
   text: string,
   snapshot: TranslationSnapshot,
+  reading?: ReadingSnapshot,
 ): Promise<SavedItem | undefined> {
   const items = await listSaved();
   const key = dedupeKey(text);
   const item = items.find((entry) => dedupeKey(entry.text) === key);
   if (!item) return undefined;
-  if (!shouldReplaceTranslation(item, snapshot)) return item;
 
-  Object.assign(item, snapshot);
-  // A regenerated meaning supersedes a pre-template note; keeping both would
-  // show two generations of notes on one card.
-  if (snapshot.explanation) delete item.note;
-  await writeAll(items);
+  let changed = false;
+  if (reading && (item.romaji !== reading.romaji || item.kana !== reading.kana)) {
+    item.romaji = reading.romaji;
+    item.kana = reading.kana;
+    changed = true;
+  }
+  if (shouldReplaceTranslation(item, snapshot)) {
+    Object.assign(item, snapshot);
+    // A regenerated meaning supersedes a pre-template note; keeping both would
+    // show two generations of notes on one card.
+    if (snapshot.explanation) delete item.note;
+    changed = true;
+  }
+  if (changed) await writeAll(items);
   return item;
 }
 

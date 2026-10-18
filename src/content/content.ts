@@ -50,6 +50,8 @@ let showFurigana = true;
 let providers: AvailableProvider[] = [];
 /** True while a regeneration is in flight, so the control can show progress. */
 let regenerating = false;
+/** The provider picked in the panel, kept across rebuilds; empty means the first. */
+let pickedProvider = '';
 
 /** The "ask about this sentence" thread for the open panel. */
 interface AskThread {
@@ -485,6 +487,10 @@ function panelOptions(view: PanelState) {
     showFurigana,
     providers: canUseModel ? providers : [],
     regenerating,
+    provider: pickedProvider,
+    onProviderChange: (provider: string) => {
+      pickedProvider = provider;
+    },
     onRegenerate:
       canUseModel && done ? (provider: string) => void regenerate(view, provider) : undefined,
     ask:

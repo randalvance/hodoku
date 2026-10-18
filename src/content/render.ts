@@ -44,6 +44,13 @@ export interface RenderOptions {
   onRegenerate?: (provider: string) => void;
   /** Set while a regeneration is in flight. */
   regenerating?: boolean;
+  /**
+   * The provider the picker shows. The panel is rebuilt on every change, so
+   * the choice has to be held outside the DOM or each rebuild would reset it
+   * to the first provider.
+   */
+  provider?: string;
+  onProviderChange?: (provider: string) => void;
   /** Supplied only by the live panel, and only when a provider can answer. */
   ask?: AskState;
 }
@@ -302,6 +309,10 @@ function renderMeaningControls(
       select.appendChild(option);
     }
     select.disabled = busy;
+    if (options.provider && providers.some((p) => p.id === options.provider)) {
+      select.value = options.provider;
+    }
+    select.addEventListener('change', () => options.onProviderChange?.(select!.value));
   }
   const provider = () => select?.value ?? providers[0].id;
 

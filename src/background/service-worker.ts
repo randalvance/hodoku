@@ -397,13 +397,18 @@ async function regenerate(
     const value = cacheValueOf(result);
     applyTranslation(analysis, model, value, false, settings);
     await putCached(analysis.text, id, model, value);
-    await updateTranslation(analysis.text, {
-      translation: value.translation,
-      translationSource: 'ai',
-      translationModel: model,
-      literal: value.literal,
-      explanation: value.explanation,
-    });
+    await updateTranslation(
+      analysis.text,
+      {
+        translation: value.translation,
+        translationSource: 'ai',
+        translationModel: model,
+        literal: value.literal,
+        explanation: value.explanation,
+      },
+      // The reading may be the model's now, or a fresher offline one.
+      { romaji: analysis.romaji, kana: analysis.kana },
+    );
 
     return { ok: true, provider: id, model, analysis };
   } catch (err) {

@@ -483,21 +483,31 @@ async function main() {
     console.log('   failure reported, control re-enabled');
 
     console.log('13. the ask control opens a thread and reports a failure in it');
+    // Pick the second provider first: opening the thread rebuilds the panel,
+    // and the choice must survive that rather than snap back to the first.
+    await page.evaluate(() => {
+      const select = document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-select');
+      select.value = select.options[1].value;
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    });
     await page.evaluate(() =>
       document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn--ask').click(),
     );
     const askBox = await page.evaluate(() => {
       const shadow = document.getElementById('hodoku-host').shadowRoot;
       const input = shadow.querySelector('.ask__input');
+      const select = shadow.querySelector('.mini-select');
       return {
         present: input != null,
         focused: shadow.activeElement === input,
         buttonGone: shadow.querySelector('.mini-btn--ask') == null,
+        provider: select?.selectedIndex,
       };
     });
     if (!askBox.present) fail('clicking Ask did not open a question box');
     if (!askBox.focused) fail('the question box did not take focus');
     if (!askBox.buttonGone) fail('the Ask button stayed after the box opened');
+    if (askBox.provider !== 1) fail('opening Ask reset the provider picker to the first provider');
 
     // Type a question and send it with Enter. No host permission is granted,
     // so the answer is an error — which must land in the thread, not vanish.
@@ -523,6 +533,10 @@ async function main() {
       .catch(() => fail('the question neither got an answer nor reported a failure'));
     if (thread.question !== 'なぜ「を」ですか') fail(`the question shown was ${thread.question}`);
     if (!/[Pp]ermission/.test(thread.error)) fail(`unexpected ask error: ${thread.error}`);
+    // The second provider is OpenAI, so the failure must name its host.
+    if (!/api\.openai\.com/.test(thread.error)) {
+      fail(`the question went to the wrong provider: ${thread.error}`);
+    }
     if (thread.pending) fail('the thread still shows as thinking after the failure');
     if (!thread.inputEnabled) fail('the question box stayed disabled after the failure');
     if (!thread.inputEmpty) fail('the sent question stayed in the box');
