@@ -23,6 +23,7 @@ import {
   renderBody,
   renderFooter,
   renderSource,
+  type AskEntry,
 } from './render';
 import { PANEL_STYLES } from './styles';
 
@@ -49,6 +50,18 @@ let showFurigana = true;
 let providers: AvailableProvider[] = [];
 /** True while a regeneration is in flight, so the control can show progress. */
 let regenerating = false;
+
+/** The "ask about this sentence" thread for the open panel. */
+interface AskThread {
+  open: boolean;
+  thread: AskEntry[];
+  pending: boolean;
+  draft: string;
+  /** Put the cursor in the box on the next render (opened, or an answer landed). */
+  wantsFocus: boolean;
+}
+const EMPTY_ASK: AskThread = { open: false, thread: [], pending: false, draft: '', wantsFocus: false };
+let ask: AskThread = { ...EMPTY_ASK };
 
 /* ------------------------------- bootstrap -------------------------------- */
 
@@ -282,6 +295,8 @@ async function openPanel(text: string, anchor: DOMRect): Promise<void> {
   // open after being dismissed.
   const token = ++panelToken;
   const requestId = `req-${token}`;
+  // A new sentence is a new conversation.
+  ask = { ...EMPTY_ASK };
 
   renderPanel({ state: 'loading', text });
   positionPanel(anchor);
@@ -317,6 +332,7 @@ function closePanel(): void {
   panel?.remove();
   panel = null;
   panelAnchor = null;
+  ask = { ...EMPTY_ASK };
 }
 
 function positionPanel(rect: DOMRect): void {
@@ -365,6 +381,19 @@ function renderPanel(view: PanelState): void {
   panel.appendChild(body);
 
   if (view.state === 'done') panel.appendChild(buildFoot(view.analysis));
+
+  // The whole panel is rebuilt on every change, so focus has to be restored
+  // by hand — but only when the thread asked for it, not on every re-render,
+  // or toggling furigana would yank the cursor into the question box.
+  if (ask.open && ask.wantsFocus && !ask.pending) {
+    ask.wantsFocus = false;
+    const input = body.querySelector<HTMLTextAreaElement>('.ask__input');
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+      input.scrollIntoView({ block: 'nearest' });
+    }
+  }
 }
 
 function buildHead(view: PanelState): HTMLElement {
@@ -445,18 +474,36 @@ function buildFoot(analysis: Analysis): HTMLElement {
 /**
  * Render options for the live panel.
  *
- * The regenerate control only appears when AI translation is on and at least
- * one provider has a key, so it can never offer an action that would fail.
+ * The regenerate and ask controls only appear when AI translation is on and
+ * at least one provider has a key, so they can never offer an action that
+ * would fail.
  */
 function panelOptions(view: PanelState) {
-  const canRegenerate = settings.aiTranslation && providers.length > 0;
+  const canUseModel = settings.aiTranslation && providers.length > 0;
+  const done = view.state === 'done';
   return {
     showFurigana,
-    providers: canRegenerate ? providers : [],
+    providers: canUseModel ? providers : [],
     regenerating,
     onRegenerate:
-      canRegenerate && view.state === 'done'
-        ? (provider: string) => void regenerate(view, provider)
+      canUseModel && done ? (provider: string) => void regenerate(view, provider) : undefined,
+    ask:
+      canUseModel && done
+        ? {
+            open: ask.open,
+            thread: ask.thread,
+            pending: ask.pending,
+            draft: ask.draft,
+            onOpen: () => {
+              ask.open = true;
+              ask.wantsFocus = true;
+              renderPanel(view);
+            },
+            onDraft: (value: string) => {
+              ask.draft = value;
+            },
+            onSend: (question: string, provider: string) => void sendQuestion(view, question, provider),
+          }
         : undefined,
   };
 }
@@ -470,21 +517,15 @@ async function regenerate(view: PanelState & { state: 'done' }, provider: string
   try {
     const response = (await chrome.runtime.sendMessage({
       type: 'regenerate',
-      analysis: view.analysis,
+      text: view.analysis.text,
       provider,
-    })) as
-      | { ok: true; translation: string; literal?: string; note?: string; model: string }
-      | { ok: false; error: string };
+    })) as { ok: true; analysis: Analysis; model: string } | { ok: false; error: string };
 
     if (!response?.ok) throw new Error(response?.error ?? 'No response');
 
-    view.analysis.translation = { text: response.translation, source: 'ai', model: response.model };
-    view.analysis.literalTranslation = response.literal;
-    view.analysis.grammarNote = response.note;
-    // A previous failure message no longer applies to this translation.
-    view.analysis.warnings = view.analysis.warnings.filter(
-      (warning) => !warning.startsWith('Translation unavailable'),
-    );
+    // The whole analysis comes back: with the standard-fields option on, the
+    // reading and breakdown are the model's too, not just the meaning.
+    view.analysis = response.analysis;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     view.analysis.warnings = [
@@ -494,6 +535,43 @@ async function regenerate(view: PanelState & { state: 'done' }, provider: string
   } finally {
     regenerating = false;
     renderPanel(view);
+  }
+}
+
+/** Send a question about the sentence and show the answer in the thread. */
+async function sendQuestion(
+  view: PanelState & { state: 'done' },
+  question: string,
+  provider: string,
+): Promise<void> {
+  if (ask.pending) return;
+  const entry: AskEntry = { question };
+  ask.thread = [...ask.thread, entry];
+  ask.pending = true;
+  ask.draft = '';
+  renderPanel(view);
+
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'ask',
+      analysis: view.analysis,
+      question,
+      // Only completed exchanges make sense as context.
+      history: ask.thread
+        .filter((turn) => turn.answer)
+        .map((turn) => ({ question: turn.question, answer: turn.answer })),
+      provider,
+    })) as { ok: true; answer: string } | { ok: false; error: string };
+
+    if (!response?.ok) throw new Error(response?.error ?? 'No response');
+    entry.answer = response.answer;
+  } catch (err) {
+    entry.error = err instanceof Error ? err.message : String(err);
+  } finally {
+    ask.pending = false;
+    ask.wantsFocus = true;
+    // The panel may have moved on to another sentence while this was out.
+    if (ask.thread.includes(entry)) renderPanel(view);
   }
 }
 

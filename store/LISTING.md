@@ -57,7 +57,7 @@ Japanese does not put spaces between words, so a good breakdown depends on good 
 
 OPTIONAL AI TRANSLATION
 
-If you want a fluent, natural translation of the whole sentence, you can add your own API key in the options — Anthropic (Claude), OpenAI (GPT), or OpenRouter (hundreds of models from many vendors, with one key), whichever you already have. The model list comes live from the provider, so new models show up without an update. This is off by default and completely optional: romaji, readings, and word meanings all work without it. Translations are cached locally, so re-reading the same sentence never costs a second API call — and a Regenerate button lets you ask again, or ask a different provider, whenever an answer is not quite right. The extension only asks for network permission if you turn this on, it only asks for the provider you picked, and your key is stored in your own browser and sent only to that provider.
+If you want a fluent, natural translation of the whole sentence, you can add your own API key in the options — Anthropic (Claude), OpenAI (GPT), or OpenRouter (hundreds of models from many vendors, with one key), whichever you already have. The model list comes live from the provider, so new models show up without an update. Alongside the translation you get notes in a fixed template — the grammar in play, anything that does not follow the usual rules, and readings you could get wrong — and an Ask button to put your own questions about the sentence to the model. A further opt-in lets the model produce the reading and the word-by-word breakdown too. All of this is off by default and completely optional: romaji, readings, and word meanings all work without it. Translations are cached locally, so re-reading the same sentence never costs a second API call — and a Regenerate button lets you ask again, or ask a different provider, whenever an answer is not quite right. The extension only asks for network permission if you turn this on, it only asks for the provider you picked, and your key is stored in your own browser and sent only to that provider.
 
 SAVE WHAT YOU WANT TO REMEMBER
 
@@ -113,7 +113,7 @@ Hodoku converts Japanese text that the user highlights into romaji and shows a w
 - *Location*? **No**
 - *Web history*? **No**
 - *User activity*? **No**
-- *Website content*? **Yes** — sentences the user explicitly saves for review are stored locally in their own browser (never transmitted anywhere), and, only when AI translation is enabled, the specific text the user selects, is sent to the user's chosen provider (Anthropic, OpenAI, or OpenRouter) to be translated. With AI translation off (the default), no selected text ever leaves the browser.
+- *Website content*? **Yes** — sentences the user explicitly saves for review are stored locally in their own browser (never transmitted anywhere), and, only when AI translation is enabled, the specific text the user selects — plus any question the user types about it — is sent to the user's chosen provider (Anthropic, OpenAI, or OpenRouter) to be translated or answered. With AI translation off (the default), no selected text ever leaves the browser.
 
 Certifications (all three must be checked):
 - I do not sell or transfer user data to third parties, outside of the approved use cases
@@ -178,6 +178,7 @@ To re-shoot after a UI change: `npm run build && npm run build:screenshots`.
 - [ ] Load `dist/` unpacked at `chrome://extensions` and confirm the panel works on a real Japanese page
 - [ ] Confirm the Anki export toggle prompts for loopback permission, and that Test connection succeeds against a running Anki with AnkiConnect
 - [ ] Confirm the AI translation toggle prompts for the selected provider's host permission, that switching provider prompts for the new host and drops the old one, that the model selector loads each provider's live list (and falls back to suggestions without a key), and that declining leaves the rest of the extension working
+- [ ] With a real key: confirm the explanation renders under its three labels, that Ask answers a question in the thread, and that the standard-fields toggle swaps in a model breakdown marked AI (and falls back to the offline one with a warning if the model's entries do not match)
 - [ ] Publish the privacy policy at a public URL and paste it into the Privacy tab
 - [ ] Check the item name does not collide with an existing trademark (see the note in `README.md`)
 

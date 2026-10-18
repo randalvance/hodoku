@@ -205,14 +205,34 @@ export const PANEL_STYLES = /* css */ `
   color: var(--rr-fg-muted);
 }
 
-.meaning__note {
+/* The templated notes: one tinted block per section that has something to say. */
+.meaning__explanation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 8px;
+}
+
+.explanation__section {
   padding: 7px 9px;
   border-radius: 8px;
   background: var(--rr-accent-soft);
   font-size: 12.5px;
   color: var(--rr-fg-muted);
 }
+
+.explanation__label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--rr-accent);
+}
+
+.explanation__list { margin: 0; padding-left: 16px; }
+.explanation__list li + li { margin-top: 2px; }
 
 .badge-source {
   display: inline-block;
@@ -259,6 +279,52 @@ export const PANEL_STYLES = /* css */ `
 }
 
 .meaning__provider { font-size: 11.5px; color: var(--rr-fg-faint); }
+
+/* Fields the model produced, as opposed to the offline analyser. */
+.badge-source--ai { color: var(--rr-accent); border-color: var(--rr-accent); }
+.romaji__row .badge-source { margin-top: 5px; flex-shrink: 0; }
+.section__label .badge-source { vertical-align: 0; }
+
+/* ---------------------------------- ask ----------------------------------- */
+
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ask__turn { font-size: 12.5px; }
+.ask__q { font-weight: 600; color: var(--rr-fg); }
+.ask__a { margin-top: 3px; white-space: pre-wrap; color: var(--rr-fg-muted); user-select: text; }
+.ask__err { margin-top: 3px; color: var(--rr-warn-fg); }
+
+.ask__pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--rr-fg-faint);
+}
+
+.ask__form { display: flex; align-items: flex-end; gap: 6px; }
+
+.ask__input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--rr-border);
+  border-radius: 8px;
+  background: var(--rr-bg);
+  color: var(--rr-fg);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  resize: none;
+}
+.ask__input::placeholder { color: var(--rr-fg-faint); }
+.ask__input:focus-visible { outline: 2px solid var(--rr-accent); outline-offset: 1px; }
+.ask__input:disabled { opacity: 0.6; }
 
 /* A dot marks a translation that cost nothing to show. */
 .badge-source--cached::after {

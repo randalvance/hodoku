@@ -29,12 +29,23 @@ globalThis.chrome = {
   },
 };
 
-const { MAX_ENTRIES, cacheKey, cacheStats, clearCache, getCached, putCached } = await import(
-  '../.cache/lib.mjs'
-);
+const { MAX_ENTRIES, cacheKey, cacheStats, clearCache, getCached, isCurrent, putCached } =
+  await import('../.cache/lib.mjs');
 
 const TEXT = '日本語を勉強しています。';
-const VALUE = { translation: 'I am studying Japanese.', literal: 'Japanese studying am.', note: 'ています marks an ongoing action.' };
+const EXPLANATION = {
+  grammar: ['ています marks an ongoing action.'],
+  exceptions: [],
+  readings: [],
+};
+const VALUE = {
+  translation: 'I am studying Japanese.',
+  literal: 'Japanese studying am.',
+  explanation: EXPLANATION,
+};
+const WORDS = [
+  { surface: '日本語', reading: 'にほんご', pronunciation: 'ニホンゴ', dictionaryForm: '', pos: 'Noun', inflection: '', meaning: 'Japanese', note: '' },
+];
 
 beforeEach(() => store.clear());
 
@@ -67,7 +78,7 @@ describe('put and get', () => {
 
     assert.equal(entry.translation, VALUE.translation);
     assert.equal(entry.literal, VALUE.literal);
-    assert.equal(entry.note, VALUE.note);
+    assert.deepEqual(entry.explanation, EXPLANATION);
     assert.equal(entry.text, TEXT);
     assert.equal(entry.provider, 'anthropic');
     assert.equal(entry.model, 'claude-opus-5');
@@ -119,6 +130,47 @@ describe('put and get', () => {
     });
 
     assert.equal(await getCached(TEXT, 'anthropic', 'claude-opus-5'), undefined);
+  });
+});
+
+describe('isCurrent', () => {
+  it('accepts an entry with the explanation template', async () => {
+    await putCached(TEXT, 'anthropic', 'claude-opus-5', VALUE);
+    const entry = await getCached(TEXT, 'anthropic', 'claude-opus-5');
+    assert.equal(isCurrent(entry, { fields: false }), true);
+  });
+
+  it('rejects an entry from before the template, which only has a note', async () => {
+    const key = cacheKey(TEXT, 'anthropic', 'claude-opus-5');
+    store.set('translationCache', {
+      [key]: {
+        text: TEXT,
+        provider: 'anthropic',
+        model: 'claude-opus-5',
+        translation: 'Old.',
+        note: 'ています marks an ongoing action.',
+        createdAt: 1,
+        lastUsedAt: 1,
+        hits: 0,
+      },
+    });
+    const entry = await getCached(TEXT, 'anthropic', 'claude-opus-5');
+    assert.ok(entry, 'the stale entry should still be readable as a fallback');
+    assert.equal(isCurrent(entry, { fields: false }), false);
+  });
+
+  it('rejects an entry without a breakdown when one is wanted', async () => {
+    await putCached(TEXT, 'anthropic', 'claude-opus-5', VALUE);
+    const entry = await getCached(TEXT, 'anthropic', 'claude-opus-5');
+    assert.equal(isCurrent(entry, { fields: true }), false);
+  });
+
+  it('accepts an entry with a breakdown whether or not one is wanted', async () => {
+    await putCached(TEXT, 'anthropic', 'claude-opus-5', { ...VALUE, words: WORDS });
+    const entry = await getCached(TEXT, 'anthropic', 'claude-opus-5');
+    assert.equal(isCurrent(entry, { fields: true }), true);
+    assert.equal(isCurrent(entry, { fields: false }), true);
+    assert.deepEqual(entry.words, WORDS);
   });
 });
 

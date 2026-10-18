@@ -10,25 +10,52 @@
  * in-memory cache within seconds.
  */
 
+import type { AiWord } from './types';
+import type { Explanation } from './explanation';
+
 const STORAGE_KEY = 'translationCache';
 
 /**
- * Entries are small (a few hundred bytes), so this cap is about keeping reads
- * and writes of the whole map cheap, not about the 10 MB storage quota.
+ * Entries are small (a few hundred bytes, or a couple of KB with a model
+ * breakdown), so this cap is about keeping reads and writes of the whole map
+ * cheap, not about the 10 MB storage quota.
  */
 export const MAX_ENTRIES = 500;
 
-export interface CacheEntry {
+export interface CacheValue {
+  translation: string;
+  literal?: string;
+  /** Templated notes. Absent only on entries written before the template existed. */
+  explanation?: Explanation;
+  /** The model's breakdown, when the request asked for the standard fields. */
+  words?: AiWord[];
+}
+
+export interface CacheEntry extends CacheValue {
   /** The exact text this translation was produced for. */
   text: string;
   provider: string;
   model: string;
-  translation: string;
-  literal?: string;
+  /** Free-form grammar note from before the explanation template; never written now. */
   note?: string;
   createdAt: number;
   lastUsedAt: number;
   hits: number;
+}
+
+/**
+ * Does a cached entry carry everything the current request wants?
+ *
+ * An entry from before the explanation template has only a free-form note,
+ * and an entry made with the standard fields off has no breakdown — either
+ * way the sentence is asked for again, and the fresh answer overwrites it.
+ * The stale entry is still returned by getCached so the caller can fall back
+ * to it if that fresh call fails.
+ */
+export function isCurrent(entry: CacheEntry, need: { fields: boolean }): boolean {
+  if (!entry.explanation) return false;
+  if (need.fields && !entry.words) return false;
+  return true;
 }
 
 type CacheMap = Record<string, CacheEntry>;
@@ -84,12 +111,6 @@ export async function getCached(
   return entry;
 }
 
-export interface CacheValue {
-  translation: string;
-  literal?: string;
-  note?: string;
-}
-
 export async function putCached(
   text: string,
   provider: string,
@@ -105,7 +126,8 @@ export async function putCached(
     model,
     translation: value.translation,
     literal: value.literal,
-    note: value.note,
+    explanation: value.explanation,
+    words: value.words,
     createdAt: now,
     lastUsedAt: now,
     hits: 0,

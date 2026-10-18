@@ -53,12 +53,18 @@ const analysis = (text, extra = {}) => ({
   ...extra,
 });
 
+const EXPLANATION = {
+  grammar: ['好き takes が, not を.'],
+  exceptions: [],
+  readings: ['好き is read すき.'],
+};
+
 /** The same sentence as it looks with AI translation switched off. */
 const glossOnly = (text) =>
   analysis(text, {
     translation: { text: 'Japanese · direct object marker · to study', source: 'gloss' },
     literalTranslation: undefined,
-    grammarNote: undefined,
+    explanation: undefined,
   });
 
 beforeEach(() => store.clear());
@@ -86,7 +92,7 @@ describe('saveAnalysis', () => {
     const { item } = await saveAnalysis(
       analysis('猫が好きです', {
         literalTranslation: 'cat-SUBJ liked is',
-        grammarNote: '好き takes が, not を.',
+        explanation: EXPLANATION,
       }),
     );
 
@@ -94,7 +100,28 @@ describe('saveAnalysis', () => {
     assert.equal(item.translationSource, 'ai');
     assert.equal(item.translationModel, 'claude-opus-5', 'the model was not recorded');
     assert.equal(item.literal, 'cat-SUBJ liked is');
-    assert.equal(item.note, '好き takes が, not を.');
+    assert.deepEqual(item.explanation, EXPLANATION);
+  });
+
+  it('replaces a pre-template note once a templated explanation arrives', async () => {
+    store.set('savedItems', [
+      {
+        id: 'old',
+        text: '猫が好きです',
+        romaji: 'Neko ga suki desu',
+        kana: 'ねこがすきです',
+        translation: 'I like cats.',
+        translationSource: 'ai',
+        translationModel: 'claude-opus-5',
+        note: '好き takes が, not を.',
+        savedAt: 1,
+        reviewCount: 0,
+      },
+    ]);
+    const { item, created } = await saveAnalysis(analysis('猫が好きです', { explanation: EXPLANATION }));
+    assert.equal(created, false);
+    assert.deepEqual(item.explanation, EXPLANATION);
+    assert.equal(item.note, undefined, 'two generations of notes on one record');
   });
 
   it('refreshes rather than duplicating the same sentence', async () => {
@@ -277,7 +304,7 @@ describe('protecting the snapshot', () => {
   const rich = () =>
     analysis('猫が好きです', {
       literalTranslation: 'cat-SUBJ liked is',
-      grammarNote: '好き takes が, not を.',
+      explanation: EXPLANATION,
     });
 
   it('does not let a gloss overwrite a model translation', async () => {
@@ -290,7 +317,7 @@ describe('protecting the snapshot', () => {
     assert.equal(item.translationSource, 'ai');
     assert.equal(item.translationModel, 'claude-opus-5');
     assert.equal(item.literal, 'cat-SUBJ liked is', 'the literal rendering was wiped');
-    assert.equal(item.note, '好き takes が, not を.', 'the grammar note was wiped');
+    assert.deepEqual(item.explanation, EXPLANATION, 'the explanation was wiped');
   });
 
   it('upgrades a gloss to a model translation', async () => {
@@ -299,7 +326,7 @@ describe('protecting the snapshot', () => {
 
     assert.equal(item.translationSource, 'ai');
     assert.equal(item.translation, 'I am studying Japanese.');
-    assert.equal(item.note, '好き takes が, not を.');
+    assert.deepEqual(item.explanation, EXPLANATION);
   });
 
   it('refreshes one gloss with another', async () => {
@@ -341,7 +368,7 @@ describe('updateTranslation', () => {
     translationSource: 'ai',
     translationModel: 'gpt-5.4',
     literal: 'regenerated literal',
-    note: 'regenerated note',
+    explanation: { grammar: ['regenerated note'], exceptions: [], readings: [] },
   };
 
   it('replaces the stored meaning after a regenerate', async () => {

@@ -17,6 +17,7 @@ import {
   type SavedItem,
 } from '../lib/saved';
 import { DEFAULT_SETTINGS, type Analysis, type Settings } from '../lib/types';
+import { renderExplanation } from '../content/render';
 
 const $ = <T extends HTMLElement>(id: string): T => document.getElementById(id) as T;
 
@@ -188,6 +189,9 @@ function renderItem(item: SavedItem): HTMLElement {
     main.appendChild(literal);
   }
 
+  const explanation = renderExplanation(item.explanation);
+  if (explanation) main.appendChild(explanation);
+  // Records from before the explanation template carry a free-form note.
   if (item.note) {
     const note = el('div', 'item__note');
     note.textContent = item.note;
@@ -443,6 +447,12 @@ function renderAnswer(item: SavedItem): HTMLElement {
     const meaning = el('div', 'study__meaning');
     meaning.textContent = item.translation;
     answer.appendChild(meaning);
+  }
+
+  const explanation = renderExplanation(item.explanation);
+  if (explanation) {
+    explanation.classList.add('study__explanation');
+    answer.appendChild(explanation);
   }
 
   const buttons = el('div', 'study__buttons');

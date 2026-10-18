@@ -1,5 +1,6 @@
 /**
- * OpenRouter backend for the optional sentence translation.
+ * OpenRouter backend for the optional sentence translation, and for follow-up
+ * questions about a sentence.
  *
  * OpenRouter speaks the OpenAI Chat Completions protocol, so this reuses the
  * OpenAI client pointed at a different base URL. Its Responses support is
@@ -9,10 +10,15 @@
 
 import OpenAI from 'openai';
 import {
-  OUTPUT_SCHEMA,
-  SYSTEM_PROMPT,
+  buildAskMessages,
+  buildAskSystem,
   buildUserMessage,
+  outputSchema,
+  parseAnswer,
   parseOutput,
+  systemPrompt,
+  type AskRequest,
+  type ChatMessage,
   type TranslationOutput,
   type TranslationRequest,
 } from './shared';
@@ -24,13 +30,11 @@ const BASE_URL = 'https://openrouter.ai/api/v1';
  * answer, and those tokens count against this ceiling.
  */
 const MAX_OUTPUT_TOKENS = 4096;
+/** The breakdown roughly doubles the output. */
+const MAX_OUTPUT_TOKENS_WITH_FIELDS = 8192;
 
-export async function translateWithOpenRouter(
-  request: TranslationRequest,
-): Promise<TranslationOutput> {
-  const { apiKey, model, signal } = request;
-
-  const client = new OpenAI({
+function createClient(apiKey: string): OpenAI {
+  return new OpenAI({
     apiKey,
     baseURL: BASE_URL,
     // The user's own key, used from the extension's background worker, sent
@@ -40,44 +44,84 @@ export async function translateWithOpenRouter(
     // Optional app attribution on OpenRouter's side; carries nothing personal.
     defaultHeaders: { 'X-Title': 'Hodoku' },
   });
+}
 
-  const params = {
-    model,
-    messages: [
-      { role: 'system' as const, content: SYSTEM_PROMPT },
-      { role: 'user' as const, content: buildUserMessage(request) },
-    ],
-    max_tokens: MAX_OUTPUT_TOKENS,
-    response_format: {
-      type: 'json_schema' as const,
-      json_schema: {
-        name: 'japanese_translation',
-        schema: OUTPUT_SCHEMA as unknown as Record<string, unknown>,
-        strict: true,
-      },
-    },
-    // OpenRouter's unified reasoning control. Models without reasoning ignore
-    // it; translation is not reasoning-heavy, so keep latency and cost down.
-    reasoning: { effort: 'low', exclude: true },
-  };
+/** One Chat Completions call; returns the message text. */
+async function createCompletion(
+  apiKey: string,
+  model: string,
+  system: string,
+  messages: ChatMessage[],
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<string> {
+  const client = createClient(apiKey);
 
   let completion;
   try {
-    completion = await client.chat.completions.create(params as never, { signal });
+    completion = await client.chat.completions.create(
+      {
+        model,
+        messages: [{ role: 'system', content: system }, ...messages],
+        ...params,
+        // OpenRouter's unified reasoning control. Models without reasoning
+        // ignore it; neither request is reasoning-heavy, so keep latency and
+        // cost down.
+        reasoning: { effort: 'low', exclude: true },
+      } as never,
+      { signal },
+    );
   } catch (err) {
     throw describeError(err);
   }
 
   const choice = completion.choices?.[0];
-  if (!choice) throw new Error('The translation came back empty.');
+  if (!choice) throw new Error('The response came back empty.');
   if (choice.message.refusal) {
-    throw new Error('The model declined to translate this text.');
+    throw new Error('The model declined this request.');
   }
   if (choice.finish_reason === 'length') {
-    throw new Error('The translation was cut off before it finished.');
+    throw new Error('The response was cut off before it finished.');
   }
 
-  return parseOutput(choice.message.content ?? '');
+  return choice.message.content ?? '';
+}
+
+export async function translateWithOpenRouter(
+  request: TranslationRequest,
+): Promise<TranslationOutput> {
+  const fields = Boolean(request.fields);
+  const text = await createCompletion(
+    request.apiKey,
+    request.model,
+    systemPrompt(fields),
+    [{ role: 'user', content: buildUserMessage(request) }],
+    {
+      max_tokens: fields ? MAX_OUTPUT_TOKENS_WITH_FIELDS : MAX_OUTPUT_TOKENS,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: 'japanese_translation',
+          schema: outputSchema(fields),
+          strict: true,
+        },
+      },
+    },
+    request.signal,
+  );
+  return parseOutput(text);
+}
+
+export async function askWithOpenRouter(request: AskRequest): Promise<string> {
+  const text = await createCompletion(
+    request.apiKey,
+    request.model,
+    buildAskSystem(request),
+    buildAskMessages(request),
+    { max_tokens: MAX_OUTPUT_TOKENS },
+    request.signal,
+  );
+  return parseAnswer(text);
 }
 
 /** Turn SDK errors into something readable in a 400px-wide panel. */

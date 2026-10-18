@@ -17,8 +17,11 @@ Anything worth coming back to can be **saved for review** with one click, then
 studied or exported later.
 
 All of that runs offline. An optional AI translation adds a fluent rendering of
-the whole sentence if you supply your own API key — Claude or GPT, whichever you
-already have.
+the whole sentence if you supply your own API key — Claude, GPT or anything on
+OpenRouter, whichever you already have — along with templated notes on the
+grammar, exceptions and readings in the sentence, and an **Ask** button for
+follow-up questions. The model can optionally take over the reading and the
+breakdown too.
 
 <p align="center">
   <img src="store/assets/preview-1-breakdown.png" width="720" alt="The panel showing romaji, meaning, and a word-by-word breakdown of a Japanese sentence">
@@ -65,7 +68,8 @@ src/
     tokenizer.ts    kuromoji loader built on fetch + DecompressionStream
     dict.ts         compiled JMdict lookup
     analyzer.ts     ties it together into an Analysis
-    translate.ts    optional AI translation (dispatch)
+    translate.ts    optional AI translation and questions (dispatch)
+    ai-fields.ts    a model breakdown → the same WordTokens the analyser emits
     providers/      one module per provider; registry.ts is SDK-free
   content/        in-page panel (shadow DOM); render.ts is shared with previews
   background/     service worker: settings, offscreen lifecycle, API calls
@@ -114,6 +118,19 @@ To run commands without opening a shell in the container:
 
 ```bash
 devcontainer exec --workspace-folder . npm test
+```
+
+Running the smoke tests on the host instead of in the container needs a browser
+that still loads unpacked extensions from the command line, which branded
+Chrome stopped doing in version 137. Install puppeteer's Chrome for Testing and
+point the scripts at it:
+
+```bash
+npx puppeteer browsers install chrome
+```
+
+```bash
+PUPPETEER_EXECUTABLE_PATH="$(npx puppeteer browsers list 2>/dev/null | grep -o '/.*Google Chrome for Testing' | head -1)" npm run smoke
 ```
 
 ## Publishing to the Chrome Web Store
@@ -212,7 +229,67 @@ and field suggestions from your live collection. Items already sent are marked
 
 Off by default and not required for anything else. When enabled, the background
 service worker calls the selected provider with the user's own key and asks for
-a fluent translation, a literal rendering, and one grammar note.
+a fluent translation, a literal rendering, and an explanation.
+
+### The explanation template
+
+The model does not get to write whatever it likes about a sentence. The output
+schema holds it to three lists, each item one short sentence, each list empty
+when there is nothing to say:
+
+| Section | What goes in it |
+| --- | --- |
+| **Grammar** | Conjugations, particles doing something notable, sentence patterns (〜ている, 〜なければならない), and what each does here |
+| **Exceptions** | Idioms, set phrases, colloquial contractions, irregular or unexpected usage, words whose meaning here differs from the dictionary |
+| **Readings** | Irregular kanji readings, rendaku, ateji, counters, particles read differently from their spelling |
+
+The panel shows only the sections that have something in them. A template
+rather than free text means every explanation covers the same ground, and the
+things a learner most often gets wrong — an odd reading, a set phrase — are
+called out rather than mentioned only if the model happened to think of them.
+
+Saved items and Anki cards carry the explanation as "Section: note" lines.
+Records saved before the template existed keep their original free-form note.
+
+### AI standard fields
+
+A second toggle, **off by default**, lets the model also produce the *standard*
+fields — the reading and the word-by-word breakdown — in place of the offline
+analyser's. It rides on the same request as the translation, so it costs more
+output tokens but no extra call.
+
+The contract is carried by the output schema rather than by instructions,
+so a model cannot drift from it: the part of speech is an enum, the
+inflection is a small object (a conjugation enum plus polite, negative, past
+and progressive flags, and any further auxiliary in Japanese), and the
+pronunciation is a list with one element per romaji word. The prompt only
+explains what each slot means. `src/lib/ai-fields.ts` turns those facts into
+the labels the panel shows ("Te-form + いる, polite") so they read exactly like
+the offline analyser's.
+
+The model is asked for readings, not romaji: a hiragana reading as written
+(for the kana line and furigana) and a katakana pronunciation as said (トーキョー,
+ワ for the particle は). The romaji is then derived with the user's chosen
+style through the same converter the offline path uses, so switching style or
+provider never changes how a sentence is romanised. Each entry is matched
+against the sentence in order; anything the model invented is dropped,
+anything it skipped is carried as a plain token, and if fewer than half its
+entries can be found in the text the offline breakdown is kept and the panel
+says so. Fields that came from the model carry an **AI** badge.
+
+The upside is a learner-friendlier segmentation — 勉強しています as one entry
+"from 勉強する, te-form + いる, polite" rather than four IPADIC tokens — and
+context-aware meanings. The downside is that it is only as good as the model,
+which is why it is opt-in.
+
+### Asking questions
+
+Next to **Regenerate** is **Ask**, which opens a small thread under the
+meaning. Questions go to the same provider the picker shows, with the sentence,
+the analysis and the translation as context and the earlier exchanges in the
+thread as history. Answers are plain prose and are never cached — a question is
+rarely asked twice. The thread belongs to the open panel and is gone when it
+closes.
 
 Three providers are supported, and they are interchangeable — same prompt, same
 JSON output contract, so the panel looks identical either way:
@@ -222,6 +299,8 @@ JSON output contract, so the panel looks identical either way:
 | Claude (Anthropic) | Messages API, structured outputs, low effort | `claude-opus-5` |
 | GPT (OpenAI) | Responses API, strict JSON schema, low reasoning effort | `gpt-5.4` |
 | OpenRouter | Chat Completions, JSON schema response format, low reasoning effort | `google/gemini-3.8-flash` |
+
+Questions use the same APIs without a schema, and get plain text back.
 
 The model selector is filled from each provider's own model list (`/v1/models`),
 so it shows exactly what your key can use, including models released after this
@@ -249,6 +328,10 @@ A translation is a pure function of (text, provider, model), so results are
 cached in `chrome.storage.local` and reused. Re-reading a page, or re-opening
 something saved for review, costs nothing and works with no network at all.
 
+- An entry only counts as a hit if it carries what the request wants: one
+  written before the explanation template existed, or without a breakdown when
+  the standard-fields option is now on, is asked for again and overwritten.
+  The stale entry is still shown if that fresh call fails.
 - The key includes provider and model, so switching either produces a fresh
   translation rather than silently reusing the other one's output.
 - Keys are hashed (FNV-1a) because the raw text can be 400 characters and the

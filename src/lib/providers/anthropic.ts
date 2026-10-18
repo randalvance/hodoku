@@ -1,13 +1,18 @@
 /**
- * Claude backend for the optional sentence translation.
+ * Claude backend for the optional sentence translation, and for follow-up
+ * questions about a sentence.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import {
-  OUTPUT_SCHEMA,
-  SYSTEM_PROMPT,
+  buildAskMessages,
+  buildAskSystem,
   buildUserMessage,
+  outputSchema,
+  parseAnswer,
   parseOutput,
+  systemPrompt,
+  type AskRequest,
   type TranslationOutput,
   type TranslationRequest,
 } from './shared';
@@ -36,47 +41,49 @@ const UNKNOWN_MODEL: ModelCapabilities = {
   serverSideFallback: false,
 };
 
-export async function translateWithClaude(
-  request: TranslationRequest,
-): Promise<TranslationOutput> {
-  const { apiKey, model, signal } = request;
-  const caps = CAPABILITIES[model] ?? UNKNOWN_MODEL;
-
-  const client = new Anthropic({
+function createClient(apiKey: string): Anthropic {
+  return new Anthropic({
     apiKey,
     // The service worker is a browser context. The key is the user's own and
     // goes nowhere but api.anthropic.com.
     dangerouslyAllowBrowser: true,
     maxRetries: 1,
   });
+}
 
-  const params: Record<string, unknown> = {
+/** One Messages call, with the per-model extras the model accepts. */
+async function createMessage(
+  apiKey: string,
+  model: string,
+  params: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<string> {
+  const caps = CAPABILITIES[model] ?? UNKNOWN_MODEL;
+  const client = createClient(apiKey);
+
+  const request: Record<string, unknown> = {
     model,
-    // Translating one sentence: a few hundred output tokens at most.
-    max_tokens: 2048,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: buildUserMessage(request) }],
-    output_config: {
-      format: { type: 'json_schema', schema: OUTPUT_SCHEMA },
-      // Translation is not reasoning-heavy; low effort keeps the panel
-      // responsive and the cost per lookup small.
-      ...(caps.effort ? { effort: 'low' } : {}),
-    },
+    ...params,
     ...(caps.adaptiveThinking ? { thinking: { type: 'adaptive' } } : {}),
   };
+  if (caps.effort) {
+    // Neither request is reasoning-heavy; low effort keeps the panel
+    // responsive and the cost per lookup small.
+    request.output_config = { ...(request.output_config as object | undefined), effort: 'low' };
+  }
 
   const betas: string[] = [];
   if (caps.serverSideFallback) {
     // A safety classifier can decline a request; the fallback re-runs it on
     // another model server-side rather than handing the user an error.
     betas.push('server-side-fallback-2026-07-01');
-    params.fallbacks = 'default';
+    request.fallbacks = 'default';
   }
 
   let message;
   try {
     message = await client.beta.messages.create(
-      { ...params, ...(betas.length ? { betas } : {}) } as never,
+      { ...request, ...(betas.length ? { betas } : {}) } as never,
       { signal },
     );
   } catch (err) {
@@ -84,15 +91,47 @@ export async function translateWithClaude(
   }
 
   if (message.stop_reason === 'refusal') {
-    throw new Error('The model declined to translate this text.');
+    throw new Error('The model declined this request.');
   }
 
-  const text = message.content
+  return message.content
     .filter((block): block is Extract<typeof block, { type: 'text' }> => block.type === 'text')
     .map((block) => block.text)
     .join('');
+}
 
+export async function translateWithClaude(
+  request: TranslationRequest,
+): Promise<TranslationOutput> {
+  const fields = Boolean(request.fields);
+  const text = await createMessage(
+    request.apiKey,
+    request.model,
+    {
+      // Translating one sentence: a few hundred output tokens at most, or a
+      // couple of thousand when the breakdown is included.
+      max_tokens: fields ? 4096 : 2048,
+      system: systemPrompt(fields),
+      messages: [{ role: 'user', content: buildUserMessage(request) }],
+      output_config: { format: { type: 'json_schema', schema: outputSchema(fields) } },
+    },
+    request.signal,
+  );
   return parseOutput(text);
+}
+
+export async function askWithClaude(request: AskRequest): Promise<string> {
+  const text = await createMessage(
+    request.apiKey,
+    request.model,
+    {
+      max_tokens: 1024,
+      system: buildAskSystem(request),
+      messages: buildAskMessages(request),
+    },
+    request.signal,
+  );
+  return parseAnswer(text);
 }
 
 /** Turn SDK errors into something readable in a 400px-wide panel. */

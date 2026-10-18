@@ -338,6 +338,13 @@ async function main() {
         provider: 'anthropic',
         model: 'claude-opus-5',
         translation: CACHED,
+        // Without the explanation template the entry counts as stale and the
+        // extension would (correctly) try the API again.
+        explanation: {
+          grammar: ['ています marks an action in progress.'],
+          exceptions: [],
+          readings: [],
+        },
         createdAt: Date.now(),
         lastUsedAt: Date.now(),
         hits: 0,
@@ -359,6 +366,10 @@ async function main() {
         meaning: shadow.querySelector('.meaning')?.textContent?.trim() ?? '',
         badgeTitle: shadow.querySelector('.badge-source')?.getAttribute('title') ?? '',
         isCached: shadow.querySelector('.badge-source--cached') != null,
+        explanation: [...shadow.querySelectorAll('.explanation__section')].map((n) => ({
+          label: n.querySelector('.explanation__label')?.textContent,
+          items: [...n.querySelectorAll('li')].map((li) => li.textContent),
+        })),
         warnings: [...shadow.querySelectorAll('.warning')].map((n) => n.textContent.trim()),
       };
     });
@@ -372,7 +383,14 @@ async function main() {
       // A permission or API warning here means it tried to call out despite the hit.
       fail(`a cache hit still attempted the API: ${cachedView.warnings.join('; ')}`);
     }
-    console.log('   served from cache, no API call, no warnings');
+    // Only the section with something in it is rendered, under its template label.
+    if (cachedView.explanation.length !== 1 || cachedView.explanation[0].label !== 'Grammar') {
+      fail(`explanation rendered as ${JSON.stringify(cachedView.explanation)}`);
+    }
+    if (!/ています/.test(cachedView.explanation[0].items[0] ?? '')) {
+      fail('the grammar note from the cache was not shown');
+    }
+    console.log('   served from cache, no API call, no warnings, explanation shown');
 
     // Put settings back so the remaining steps behave like a default install.
     await seeder.evaluate(() =>
@@ -399,6 +417,7 @@ async function main() {
         const select = shadow?.querySelector('.mini-select');
         return {
           button: shadow?.querySelector('.mini-btn')?.textContent?.trim() ?? null,
+          ask: shadow?.querySelector('.mini-btn--ask')?.textContent?.trim() ?? null,
           options: select ? [...select.options].map((o) => o.textContent) : null,
           single: shadow?.querySelector('.meaning__provider')?.textContent?.trim() ?? null,
         };
@@ -418,7 +437,9 @@ async function main() {
     // No keys at all: nothing to regenerate with, so no control.
     await seedSettings({ aiTranslation: true, anthropicApiKey: '', openaiApiKey: '' });
     await openPanel();
-    if ((await readControl()).button) fail('the regenerate control appeared with no API key');
+    const none = await readControl();
+    if (none.button) fail('the regenerate control appeared with no API key');
+    if (none.ask) fail('the ask control appeared with no API key');
     await page.mouse.click(5, 5);
 
     // One key: a button that names the provider, and no pointless dropdown.
@@ -426,6 +447,7 @@ async function main() {
     await openPanel();
     const one = await readControl();
     if (one.button !== 'Regenerate') fail(`expected a Regenerate button, saw ${one.button}`);
+    if (one.ask !== 'Ask') fail(`expected an Ask button next to it, saw ${one.ask}`);
     if (one.options) fail('a dropdown appeared with only one provider configured');
     if (!/Claude/.test(one.single ?? '')) fail(`provider label was ${one.single}`);
     await page.mouse.click(5, 5);
@@ -460,12 +482,58 @@ async function main() {
     if (stillUsable !== 'Regenerate') fail(`the button stayed stuck at "${stillUsable}"`);
     console.log('   failure reported, control re-enabled');
 
+    console.log('13. the ask control opens a thread and reports a failure in it');
+    await page.evaluate(() =>
+      document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn--ask').click(),
+    );
+    const askBox = await page.evaluate(() => {
+      const shadow = document.getElementById('hodoku-host').shadowRoot;
+      const input = shadow.querySelector('.ask__input');
+      return {
+        present: input != null,
+        focused: shadow.activeElement === input,
+        buttonGone: shadow.querySelector('.mini-btn--ask') == null,
+      };
+    });
+    if (!askBox.present) fail('clicking Ask did not open a question box');
+    if (!askBox.focused) fail('the question box did not take focus');
+    if (!askBox.buttonGone) fail('the Ask button stayed after the box opened');
+
+    // Type a question and send it with Enter. No host permission is granted,
+    // so the answer is an error — which must land in the thread, not vanish.
+    await page.keyboard.type('なぜ「を」ですか');
+    await page.keyboard.press('Enter');
+    const thread = await page
+      .waitForFunction(
+        () => {
+          const shadow = document.getElementById('hodoku-host').shadowRoot;
+          const error = shadow.querySelector('.ask__err');
+          if (!error) return null;
+          return {
+            question: shadow.querySelector('.ask__q')?.textContent,
+            error: error.textContent,
+            pending: shadow.querySelector('.ask__pending') != null,
+            inputEnabled: !shadow.querySelector('.ask__input')?.disabled,
+            inputEmpty: shadow.querySelector('.ask__input')?.value === '',
+          };
+        },
+        { timeout: 15_000 },
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => fail('the question neither got an answer nor reported a failure'));
+    if (thread.question !== 'なぜ「を」ですか') fail(`the question shown was ${thread.question}`);
+    if (!/[Pp]ermission/.test(thread.error)) fail(`unexpected ask error: ${thread.error}`);
+    if (thread.pending) fail('the thread still shows as thinking after the failure');
+    if (!thread.inputEnabled) fail('the question box stayed disabled after the failure');
+    if (!thread.inputEmpty) fail('the sent question stayed in the box');
+    console.log(`   asked, failure shown in thread: ${thread.error}`);
+
     await seedSettings({ aiTranslation: false, anthropicApiKey: '', openaiApiKey: '' });
     await seeder2.close();
     await page.bringToFront();
     await page.mouse.click(5, 5);
 
-    console.log('13. the panel save button stores the sentence');
+    console.log('14. the panel save button stores the sentence');
     await clickBox(await selectAndFindTrigger());
     await page.waitForFunction(
       () =>
@@ -495,7 +563,7 @@ async function main() {
       )
       .catch(() => fail('the save button never showed a saved state'));
 
-    console.log('14. the saved sentence appears on the review page');
+    console.log('15. the saved sentence appears on the review page');
     const extId = browser
       .targets()
       .map((t) => t.url())
@@ -526,7 +594,7 @@ async function main() {
     }
     if (!/1 saved/.test(saved.summary ?? '')) fail(`unexpected summary: ${saved.summary}`);
 
-    console.log('15. study mode reveals the answer');
+    console.log('16. study mode reveals the answer');
     await review.click('#study');
     await review.waitForSelector('.study__ja', { timeout: 10_000 });
     const revealed = await review.evaluate(async () => {
@@ -539,7 +607,7 @@ async function main() {
     });
     if (revealed !== EXPECTED_ROMAJI) fail(`study card revealed: ${revealed}`);
 
-    console.log('16. removing an item empties the list');
+    console.log('17. removing an item empties the list');
     await review.reload({ waitUntil: 'domcontentloaded' });
     await review.waitForSelector('.item', { timeout: 10_000 });
     await review.evaluate(() => {
