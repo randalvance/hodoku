@@ -22,6 +22,7 @@ import {
   setButtonIcon,
   renderBody,
   renderFooter,
+  renderModelActions,
   renderSource,
   type AskEntry,
 } from './render';
@@ -52,6 +53,8 @@ let providers: AvailableProvider[] = [];
 let regenerating = false;
 /** The provider picked in the panel, kept across rebuilds; empty means the first. */
 let pickedProvider = '';
+/** The offline result is showing and the model's answer has not arrived yet. */
+let translating = false;
 
 /** The "ask about this sentence" thread for the open panel. */
 interface AskThread {
@@ -300,22 +303,31 @@ async function openPanel(text: string, anchor: DOMRect): Promise<void> {
   // A new sentence is a new conversation.
   ask = { ...EMPTY_ASK };
 
+  translating = false;
   renderPanel({ state: 'loading', text });
   positionPanel(anchor);
 
+  type AnalyzeResponse = { ok: true; analysis: Analysis } | { ok: false; error: string };
+
+  let view: PanelState & { state: 'done' };
   try {
+    // The offline analysis first: it is instant, and the reading, furigana
+    // and breakdown should not wait for a model round trip.
     const response = (await chrome.runtime.sendMessage({
       type: 'analyze',
       text,
       requestId,
-    })) as { ok: true; analysis: Analysis } | { ok: false; error: string };
+      offlineOnly: true,
+    })) as AnalyzeResponse;
 
     if (token !== panelToken) return;
 
     if (!response) throw new Error('No response from the extension background.');
     if (!response.ok) throw new Error(response.error);
 
-    renderPanel({ state: 'done', text, analysis: response.analysis });
+    view = { state: 'done', text, analysis: response.analysis };
+    translating = settings.aiTranslation && providers.length > 0;
+    renderPanel(view);
   } catch (err) {
     if (token !== panelToken) return;
     renderPanel({
@@ -323,9 +335,40 @@ async function openPanel(text: string, anchor: DOMRect): Promise<void> {
       text,
       error: err instanceof Error ? err.message : String(err),
     });
+    return;
   }
 
-  if (panelAnchor) positionPanel(panelAnchor);
+  if (!translating) return;
+
+  // Then the model's translation, which replaces the analysis when it lands
+  // (and, with the standard-fields option on, the reading and breakdown too).
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'analyze',
+      text,
+      requestId,
+    })) as AnalyzeResponse;
+
+    if (token !== panelToken) return;
+
+    if (response?.ok) {
+      view.analysis = response.analysis;
+    } else {
+      view.analysis.warnings.push(
+        `Translation unavailable: ${response?.error ?? 'no response from the extension background'}`,
+      );
+    }
+  } catch (err) {
+    if (token !== panelToken) return;
+    view.analysis.warnings.push(
+      `Translation unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    if (token === panelToken) {
+      translating = false;
+      renderPanel(view);
+    }
+  }
 }
 
 function closePanel(): void {
@@ -335,6 +378,7 @@ function closePanel(): void {
   panel = null;
   panelAnchor = null;
   ask = { ...EMPTY_ASK };
+  translating = false;
 }
 
 function positionPanel(rect: DOMRect): void {
@@ -434,6 +478,13 @@ function buildHead(view: PanelState): HTMLElement {
     saveBtn.addEventListener('click', () => void toggleSaved(saveBtn, view.analysis));
     actions.appendChild(saveBtn);
 
+    // Regenerate, Ask and the provider picker, when AI translation can run.
+    const modelActions = renderModelActions(panelOptions(view));
+    if (modelActions.length) {
+      for (const node of modelActions) actions.appendChild(node);
+      actions.appendChild(el('span', 'panel__actions-gap'));
+    }
+
     const furiganaBtn = iconButton('ふ', 'Toggle furigana');
     furiganaBtn.setAttribute('aria-pressed', String(showFurigana));
     furiganaBtn.addEventListener('click', () => {
@@ -501,9 +552,12 @@ function panelOptions(view: PanelState) {
     showFurigana,
     providers: canUseModel ? providers : [],
     regenerating,
+    translating,
     provider: pickedProvider,
     onProviderChange: (provider: string) => {
       pickedProvider = provider;
+      // The header button shows the current provider, so it has to redraw.
+      renderPanel(view);
     },
     onRegenerate:
       canUseModel && done ? (provider: string) => void regenerate(view, provider) : undefined,

@@ -150,7 +150,14 @@ export const PANEL_STYLES = /* css */ `
   color: var(--rr-fg-muted);
 }
 
-.panel__actions { display: flex; gap: 2px; flex-shrink: 0; }
+.panel__actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.panel__actions-gap { width: 6px; }
+.panel__actions .mini-btn--provider { height: 26px; padding: 0 8px; }
+
+/* A regeneration in flight spins its arrow. */
+.icon-btn--busy svg { animation: rr-spin 900ms linear infinite; }
+.icon-btn:disabled { opacity: 0.55; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; color: var(--rr-fg-muted); }
 
 .icon-btn {
   display: grid;
@@ -259,6 +266,16 @@ export const PANEL_STYLES = /* css */ `
 .meaning--gloss {
   font-size: 14px;
   color: var(--rr-fg-muted);
+}
+
+/* The offline gloss is up, the model's translation is still coming. */
+.meaning__pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--rr-fg-faint);
 }
 
 .meaning__literal {

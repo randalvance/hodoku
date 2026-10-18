@@ -367,10 +367,16 @@ async function main() {
     console.log('   options page shows the stored key');
 
     await clickBox(await selectAndFindTrigger());
+    // The offline result renders first; the meaning is read once the
+    // model phase has settled (here: instantly, from the cache).
     await page.waitForFunction(
-      () =>
-        document.getElementById('hodoku-host')?.shadowRoot?.querySelector('.romaji__text')
-          ?.textContent?.length > 0,
+      () => {
+        const shadow = document.getElementById('hodoku-host')?.shadowRoot;
+        return (
+          shadow?.querySelector('.romaji__text')?.textContent?.length > 0 &&
+          !shadow.querySelector('.meaning__pending')
+        );
+      },
       { timeout: TIMEOUT_MS, polling: 250 },
     );
 
@@ -414,7 +420,7 @@ async function main() {
     await page.bringToFront();
     await page.mouse.click(5, 5);
 
-    console.log('11. the regenerate control offers only configured providers');
+    console.log('11. the header offers Regenerate and Ask only for configured providers');
     const seedSettings = async (patch) => {
       await seeder2.evaluate((p) => chrome.storage.local.set(p), patch);
       // The content script reloads its provider list on the storage change.
@@ -428,22 +434,29 @@ async function main() {
     const readControl = () =>
       page.evaluate(() => {
         const shadow = document.getElementById('hodoku-host')?.shadowRoot;
-        const select = shadow?.querySelector('.mini-select');
+        const regenerate = shadow?.querySelector('.panel__actions [data-action="regenerate"]');
+        const ask = shadow?.querySelector('.panel__actions [data-action="ask"]');
+        const provider = shadow?.querySelector('.panel__actions [data-action="provider"]');
         return {
-          button: shadow?.querySelector('.mini-btn')?.textContent?.trim() ?? null,
-          ask: shadow?.querySelector('.mini-btn--ask')?.textContent?.trim() ?? null,
-          options: select ? [...select.options].map((o) => o.textContent) : null,
-          single: shadow?.querySelector('.meaning__provider')?.textContent?.trim() ?? null,
+          // The header buttons are icons; their tooltips carry the words.
+          button: regenerate?.title ?? null,
+          ask: ask?.title ?? null,
+          provider: provider ? { label: provider.textContent, title: provider.title } : null,
         };
       });
 
     const openPanel = async () => {
       await page.bringToFront();
       await clickBox(await selectAndFindTrigger());
+      // Until the model phase settles, Regenerate is disabled; wait it out.
       await page.waitForFunction(
-        () =>
-          document.getElementById('hodoku-host')?.shadowRoot?.querySelector('.romaji__text')
-            ?.textContent?.length > 0,
+        () => {
+          const shadow = document.getElementById('hodoku-host')?.shadowRoot;
+          return (
+            shadow?.querySelector('.romaji__text')?.textContent?.length > 0 &&
+            !shadow.querySelector('.meaning__pending')
+          );
+        },
         { timeout: TIMEOUT_MS, polling: 250 },
       );
     };
@@ -460,25 +473,28 @@ async function main() {
     await seedSettings({ anthropicApiKey: 'sk-ant-not-real' });
     await openPanel();
     const one = await readControl();
-    if (one.button !== 'Regenerate') fail(`expected a Regenerate button, saw ${one.button}`);
-    if (one.ask !== 'Ask') fail(`expected an Ask button next to it, saw ${one.ask}`);
-    if (one.options) fail('a dropdown appeared with only one provider configured');
-    if (!/Claude/.test(one.single ?? '')) fail(`provider label was ${one.single}`);
+    if (!/^Regenerate/.test(one.button ?? '')) fail(`expected a Regenerate button, saw ${one.button}`);
+    if (!/^Ask/.test(one.ask ?? '')) fail(`expected an Ask button next to it, saw ${one.ask}`);
+    if (one.provider) fail('a provider switch appeared with only one provider configured');
+    if (!/Claude/.test(one.button ?? '')) fail(`the button does not say which provider: ${one.button}`);
     await page.mouse.click(5, 5);
 
-    // Two keys: a dropdown listing exactly those two.
+    // Two keys: a switch that names the current provider and the next one.
     await seedSettings({ openaiApiKey: 'sk-openai-not-real' });
     await openPanel();
     const two = await readControl();
-    if (!two.options || two.options.length !== 2) {
-      fail(`expected two providers in the dropdown, saw ${JSON.stringify(two.options)}`);
-    }
-    console.log(`   offered: ${two.options.join(', ')}`);
+    if (!two.provider) fail('no provider switch appeared with two providers configured');
+    if (two.provider.label !== 'Claude') fail(`the switch shows "${two.provider.label}"`);
+    if (!/GPT/.test(two.provider.title)) fail(`the switch does not offer GPT: ${two.provider.title}`);
+    console.log(`   switch: ${two.provider.label} — ${two.provider.title}`);
 
     console.log('12. regenerating surfaces the real failure rather than hanging');
     // No host permission is granted, so this must fail loudly and recover.
     await page.evaluate(() =>
-      document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn').click(),
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="regenerate"]')
+        .click(),
     );
     await page
       .waitForFunction(
@@ -488,40 +504,48 @@ async function main() {
         { timeout: 15_000 },
       )
       .catch(() => fail('regenerating neither succeeded nor reported a failure'));
-    const stillUsable = await page.evaluate(
-      () =>
-        document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn')
-          ?.textContent?.trim(),
-    );
-    if (stillUsable !== 'Regenerate') fail(`the button stayed stuck at "${stillUsable}"`);
+    const stillUsable = await page.evaluate(() => {
+      const button = document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="regenerate"]');
+      return button && !button.disabled && !button.classList.contains('icon-btn--busy');
+    });
+    if (!stillUsable) fail('the Regenerate button stayed disabled after the failure');
     console.log('   failure reported, control re-enabled');
 
     console.log('13. the ask control opens a thread and reports a failure in it');
-    // Pick the second provider first: opening the thread rebuilds the panel,
-    // and the choice must survive that rather than snap back to the first.
-    await page.evaluate(() => {
-      const select = document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-select');
-      select.value = select.options[1].value;
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-    });
+    // Switch to the second provider first: opening the thread rebuilds the
+    // panel, and the choice must survive that rather than snap back.
     await page.evaluate(() =>
-      document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn--ask').click(),
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="provider"]')
+        .click(),
+    );
+    const switched = await readControl();
+    if (switched.provider?.label !== 'GPT') fail(`switching did not move to GPT: ${switched.provider?.label}`);
+    await page.evaluate(() =>
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="ask"]')
+        .click(),
     );
     const askBox = await page.evaluate(() => {
       const shadow = document.getElementById('hodoku-host').shadowRoot;
       const input = shadow.querySelector('.ask__input');
-      const select = shadow.querySelector('.mini-select');
       return {
         present: input != null,
         focused: shadow.activeElement === input,
-        buttonGone: shadow.querySelector('.mini-btn--ask') == null,
-        provider: select?.selectedIndex,
+        pressed: shadow
+          .querySelector('.panel__actions [data-action="ask"]')
+          ?.getAttribute('aria-pressed'),
+        provider: shadow.querySelector('.panel__actions [data-action="provider"]')?.dataset.provider,
       };
     });
     if (!askBox.present) fail('clicking Ask did not open a question box');
     if (!askBox.focused) fail('the question box did not take focus');
-    if (!askBox.buttonGone) fail('the Ask button stayed after the box opened');
-    if (askBox.provider !== 1) fail('opening Ask reset the provider picker to the first provider');
+    if (askBox.pressed !== 'true') fail('the Ask button does not show the thread as open');
+    if (askBox.provider !== 'openai') fail('opening Ask reset the provider switch to the first provider');
 
     // Type a question and send it with Enter. No host permission is granted,
     // so the answer is an error — which must land in the thread, not vanish.

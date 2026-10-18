@@ -459,6 +459,8 @@ interface AnalyzeMessage {
   type: 'analyze';
   text: string;
   requestId: string;
+  /** Just the offline analysis, without waiting on the model. */
+  offlineOnly?: boolean;
 }
 interface SettingsMessage {
   type: 'getSettings' | 'setSettings';
@@ -570,7 +572,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: st
     try {
       switch (message.type) {
         case 'analyze':
-          sendResponse({ ok: true, analysis: await analyze(message.text, message.requestId) });
+          sendResponse({
+            ok: true,
+            analysis: message.offlineOnly
+              ? await analyzeOffline(message.text, await getSettings())
+              : await analyze(message.text, message.requestId),
+          });
           return;
         case 'getSettings': {
           const settings = await getSettings();
