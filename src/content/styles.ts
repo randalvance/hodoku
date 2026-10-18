@@ -133,12 +133,21 @@ export const PANEL_STYLES = /* css */ `
   background: var(--rr-bg-soft);
 }
 
+/* The sentence itself is what the panel is about, so it reads at display
+   size, with room above each line for the furigana. */
 .panel__source {
   flex: 1;
   min-width: 0;
-  font-size: 17px;
-  line-height: 1.7;
+  font-size: 24px;
+  line-height: 1.75;
   word-break: break-word;
+}
+
+.panel__source ruby { ruby-position: over; }
+.panel__source rt {
+  font-size: 0.45em;
+  font-weight: 400;
+  color: var(--rr-fg-muted);
 }
 
 .panel__actions { display: flex; gap: 2px; flex-shrink: 0; }
