@@ -22,7 +22,9 @@ import {
   setButtonIcon,
   renderBody,
   renderFooter,
+  renderModelActions,
   renderSource,
+  type AskEntry,
 } from './render';
 import { PANEL_STYLES } from './styles';
 
@@ -49,6 +51,22 @@ let showFurigana = true;
 let providers: AvailableProvider[] = [];
 /** True while a regeneration is in flight, so the control can show progress. */
 let regenerating = false;
+/** The provider picked in the panel, kept across rebuilds; empty means the first. */
+let pickedProvider = '';
+/** The offline result is showing and the model's answer has not arrived yet. */
+let translating = false;
+
+/** The "ask about this sentence" thread for the open panel. */
+interface AskThread {
+  open: boolean;
+  thread: AskEntry[];
+  pending: boolean;
+  draft: string;
+  /** Put the cursor in the box on the next render (opened, or an answer landed). */
+  wantsFocus: boolean;
+}
+const EMPTY_ASK: AskThread = { open: false, thread: [], pending: false, draft: '', wantsFocus: false };
+let ask: AskThread = { ...EMPTY_ASK };
 
 /* ------------------------------- bootstrap -------------------------------- */
 
@@ -282,23 +300,34 @@ async function openPanel(text: string, anchor: DOMRect): Promise<void> {
   // open after being dismissed.
   const token = ++panelToken;
   const requestId = `req-${token}`;
+  // A new sentence is a new conversation.
+  ask = { ...EMPTY_ASK };
 
+  translating = false;
   renderPanel({ state: 'loading', text });
   positionPanel(anchor);
 
+  type AnalyzeResponse = { ok: true; analysis: Analysis } | { ok: false; error: string };
+
+  let view: PanelState & { state: 'done' };
   try {
+    // The offline analysis first: it is instant, and the reading, furigana
+    // and breakdown should not wait for a model round trip.
     const response = (await chrome.runtime.sendMessage({
       type: 'analyze',
       text,
       requestId,
-    })) as { ok: true; analysis: Analysis } | { ok: false; error: string };
+      offlineOnly: true,
+    })) as AnalyzeResponse;
 
     if (token !== panelToken) return;
 
     if (!response) throw new Error('No response from the extension background.');
     if (!response.ok) throw new Error(response.error);
 
-    renderPanel({ state: 'done', text, analysis: response.analysis });
+    view = { state: 'done', text, analysis: response.analysis };
+    translating = settings.aiTranslation && providers.length > 0;
+    renderPanel(view);
   } catch (err) {
     if (token !== panelToken) return;
     renderPanel({
@@ -306,9 +335,40 @@ async function openPanel(text: string, anchor: DOMRect): Promise<void> {
       text,
       error: err instanceof Error ? err.message : String(err),
     });
+    return;
   }
 
-  if (panelAnchor) positionPanel(panelAnchor);
+  if (!translating) return;
+
+  // Then the model's translation, which replaces the analysis when it lands
+  // (and, with the standard-fields option on, the reading and breakdown too).
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'analyze',
+      text,
+      requestId,
+    })) as AnalyzeResponse;
+
+    if (token !== panelToken) return;
+
+    if (response?.ok) {
+      view.analysis = response.analysis;
+    } else {
+      view.analysis.warnings.push(
+        `Translation unavailable: ${response?.error ?? 'no response from the extension background'}`,
+      );
+    }
+  } catch (err) {
+    if (token !== panelToken) return;
+    view.analysis.warnings.push(
+      `Translation unavailable: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  } finally {
+    if (token === panelToken) {
+      translating = false;
+      renderPanel(view);
+    }
+  }
 }
 
 function closePanel(): void {
@@ -317,6 +377,8 @@ function closePanel(): void {
   panel?.remove();
   panel = null;
   panelAnchor = null;
+  ask = { ...EMPTY_ASK };
+  translating = false;
 }
 
 function positionPanel(rect: DOMRect): void {
@@ -355,6 +417,13 @@ function renderPanel(view: PanelState): void {
   panel.appendChild(buildHead(view));
 
   const body = el('div', 'panel__body');
+  if (view.state === 'done') {
+    body.classList.add('panel__body--split');
+    // A third column for the thread while it is open; the panel widens with it.
+    if (ask.open && settings.aiTranslation && providers.length > 0) {
+      body.classList.add('panel__body--chat');
+    }
+  }
   if (view.state === 'loading') {
     body.appendChild(loadingState());
   } else if (view.state === 'error') {
@@ -365,6 +434,26 @@ function renderPanel(view: PanelState): void {
   panel.appendChild(body);
 
   if (view.state === 'done') panel.appendChild(buildFoot(view.analysis));
+
+  // The chat log always shows its newest exchange.
+  const log = body.querySelector<HTMLElement>('.chat__log');
+  if (log) log.scrollTop = log.scrollHeight;
+
+  // The whole panel is rebuilt on every change, so focus has to be restored
+  // by hand — but only when the thread asked for it, not on every re-render,
+  // or toggling furigana would yank the cursor into the question box.
+  if (ask.open && ask.wantsFocus && !ask.pending) {
+    ask.wantsFocus = false;
+    const input = body.querySelector<HTMLTextAreaElement>('.ask__input');
+    if (input) {
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+  }
+
+  // Opening or closing the thread changes the panel's width, which can push
+  // it past the viewport edge; re-anchor it.
+  if (panelAnchor) positionPanel(panelAnchor);
 }
 
 function buildHead(view: PanelState): HTMLElement {
@@ -388,6 +477,13 @@ function buildHead(view: PanelState): HTMLElement {
     void refreshSavedState(saveBtn, view.analysis.text);
     saveBtn.addEventListener('click', () => void toggleSaved(saveBtn, view.analysis));
     actions.appendChild(saveBtn);
+
+    // Regenerate, Ask and the provider picker, when AI translation can run.
+    const modelActions = renderModelActions(panelOptions(view));
+    if (modelActions.length) {
+      for (const node of modelActions) actions.appendChild(node);
+      actions.appendChild(el('span', 'panel__actions-gap'));
+    }
 
     const furiganaBtn = iconButton('ふ', 'Toggle furigana');
     furiganaBtn.setAttribute('aria-pressed', String(showFurigana));
@@ -445,18 +541,48 @@ function buildFoot(analysis: Analysis): HTMLElement {
 /**
  * Render options for the live panel.
  *
- * The regenerate control only appears when AI translation is on and at least
- * one provider has a key, so it can never offer an action that would fail.
+ * The regenerate and ask controls only appear when AI translation is on and
+ * at least one provider has a key, so they can never offer an action that
+ * would fail.
  */
 function panelOptions(view: PanelState) {
-  const canRegenerate = settings.aiTranslation && providers.length > 0;
+  const canUseModel = settings.aiTranslation && providers.length > 0;
+  const done = view.state === 'done';
   return {
     showFurigana,
-    providers: canRegenerate ? providers : [],
+    providers: canUseModel ? providers : [],
     regenerating,
+    translating,
+    provider: pickedProvider,
+    onProviderChange: (provider: string) => {
+      pickedProvider = provider;
+      // The header button shows the current provider, so it has to redraw.
+      renderPanel(view);
+    },
     onRegenerate:
-      canRegenerate && view.state === 'done'
-        ? (provider: string) => void regenerate(view, provider)
+      canUseModel && done ? (provider: string) => void regenerate(view, provider) : undefined,
+    ask:
+      canUseModel && done
+        ? {
+            open: ask.open,
+            thread: ask.thread,
+            pending: ask.pending,
+            draft: ask.draft,
+            onOpen: () => {
+              ask.open = true;
+              ask.wantsFocus = true;
+              renderPanel(view);
+            },
+            // Closing keeps the exchanges, so reopening picks the thread back up.
+            onClose: () => {
+              ask.open = false;
+              renderPanel(view);
+            },
+            onDraft: (value: string) => {
+              ask.draft = value;
+            },
+            onSend: (question: string, provider: string) => void sendQuestion(view, question, provider),
+          }
         : undefined,
   };
 }
@@ -470,21 +596,15 @@ async function regenerate(view: PanelState & { state: 'done' }, provider: string
   try {
     const response = (await chrome.runtime.sendMessage({
       type: 'regenerate',
-      analysis: view.analysis,
+      text: view.analysis.text,
       provider,
-    })) as
-      | { ok: true; translation: string; literal?: string; note?: string; model: string }
-      | { ok: false; error: string };
+    })) as { ok: true; analysis: Analysis; model: string } | { ok: false; error: string };
 
     if (!response?.ok) throw new Error(response?.error ?? 'No response');
 
-    view.analysis.translation = { text: response.translation, source: 'ai', model: response.model };
-    view.analysis.literalTranslation = response.literal;
-    view.analysis.grammarNote = response.note;
-    // A previous failure message no longer applies to this translation.
-    view.analysis.warnings = view.analysis.warnings.filter(
-      (warning) => !warning.startsWith('Translation unavailable'),
-    );
+    // The whole analysis comes back: with the standard-fields option on, the
+    // reading and breakdown are the model's too, not just the meaning.
+    view.analysis = response.analysis;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     view.analysis.warnings = [
@@ -494,6 +614,43 @@ async function regenerate(view: PanelState & { state: 'done' }, provider: string
   } finally {
     regenerating = false;
     renderPanel(view);
+  }
+}
+
+/** Send a question about the sentence and show the answer in the thread. */
+async function sendQuestion(
+  view: PanelState & { state: 'done' },
+  question: string,
+  provider: string,
+): Promise<void> {
+  if (ask.pending) return;
+  const entry: AskEntry = { question };
+  ask.thread = [...ask.thread, entry];
+  ask.pending = true;
+  ask.draft = '';
+  renderPanel(view);
+
+  try {
+    const response = (await chrome.runtime.sendMessage({
+      type: 'ask',
+      analysis: view.analysis,
+      question,
+      // Only completed exchanges make sense as context.
+      history: ask.thread
+        .filter((turn) => turn.answer)
+        .map((turn) => ({ question: turn.question, answer: turn.answer })),
+      provider,
+    })) as { ok: true; answer: string } | { ok: false; error: string };
+
+    if (!response?.ok) throw new Error(response?.error ?? 'No response');
+    entry.answer = response.answer;
+  } catch (err) {
+    entry.error = err instanceof Error ? err.message : String(err);
+  } finally {
+    ask.pending = false;
+    ask.wantsFocus = true;
+    // The panel may have moved on to another sentence while this was out.
+    if (ask.thread.includes(entry)) renderPanel(view);
   }
 }
 

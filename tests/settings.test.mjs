@@ -9,7 +9,11 @@ import {
   credentialsFor,
   getProvider,
   migrateSettings,
+  outputSchema,
   parseOutput,
+  systemPrompt,
+  buildAskMessages,
+  buildAskSystem,
 } from '../.cache/lib.mjs';
 
 describe('provider registry', () => {
@@ -113,6 +117,7 @@ describe('migrateSettings', () => {
 describe('defaults', () => {
   it('ships with AI translation off and no keys', () => {
     assert.equal(DEFAULT_SETTINGS.aiTranslation, false);
+    assert.equal(DEFAULT_SETTINGS.aiStandardFields, false, 'AI standard fields must be opt-in');
     assert.equal(DEFAULT_SETTINGS.anthropicApiKey, '');
     assert.equal(DEFAULT_SETTINGS.openaiApiKey, '');
     assert.equal(DEFAULT_SETTINGS.openrouterApiKey, '');
@@ -196,7 +201,9 @@ describe('credentialsFor with an explicit provider', () => {
 });
 
 describe('parseOutput', () => {
-  const json = '{"translation":"I like cats.","literal":"cats-as-for liked is","note":""}';
+  const json =
+    '{"translation":"I like cats.","literal":"cats-as-for liked is",' +
+    '"explanation":{"grammar":["好き takes が."],"exceptions":[],"readings":[]}}';
 
   it('reads plain JSON', () => {
     assert.equal(parseOutput(json).translation, 'I like cats.');
@@ -209,5 +216,140 @@ describe('parseOutput', () => {
 
   it('still rejects something that is not JSON', () => {
     assert.throws(() => parseOutput('I like cats.'), /Could not read/);
+  });
+
+  it('reads the explanation template', () => {
+    assert.deepEqual(parseOutput(json).explanation, {
+      grammar: ['好き takes が.'],
+      exceptions: [],
+      readings: [],
+    });
+  });
+
+  it('always yields the three sections, even when the model omits them', () => {
+    const { explanation } = parseOutput('{"translation":"Hi.","literal":"Hi."}');
+    assert.deepEqual(explanation, { grammar: [], exceptions: [], readings: [] });
+  });
+
+  it('tolerates a section typed as a string, and drops blank items', () => {
+    const { explanation } = parseOutput(
+      '{"translation":"Hi.","literal":"","explanation":{"grammar":"One point.","exceptions":["", "  "],"readings":[" rendaku "]}}',
+    );
+    assert.deepEqual(explanation, { grammar: ['One point.'], exceptions: [], readings: ['rendaku'] });
+  });
+
+  it('has no words unless the model sent some', () => {
+    assert.equal(parseOutput(json).words, undefined);
+  });
+
+  it('normalises the words it was sent', () => {
+    const inflection = { form: 'te', polite: true, negative: false, past: false, progressive: true, auxiliary: '' };
+    const { words } = parseOutput(
+      '{"translation":"Hi.","literal":"","explanation":{"grammar":[],"exceptions":[],"readings":[]},' +
+        '"words":[{"surface":"食べています","reading":"たべています","pronunciation":["タベテ","イマス"],"dictionaryForm":"食べる","pos":"verb","inflection":' +
+        JSON.stringify(inflection) +
+        ',"meaning":"am eating","note":""},' +
+        '{"surface":"","reading":"","pronunciation":[],"dictionaryForm":"","pos":"other","meaning":"","note":""},' +
+        '{"surface":"が","meaning":" subject "}]}',
+    );
+    assert.equal(words.length, 2, 'an entry with no surface was kept');
+    assert.deepEqual(words[0].pronunciation, ['タベテ', 'イマス']);
+    assert.deepEqual(words[0].inflection, inflection);
+    assert.equal(words[1].surface, 'が');
+    assert.equal(words[1].meaning, 'subject');
+    assert.equal(words[1].pos, 'other', 'a missing part of speech should fall back to "other"');
+    assert.deepEqual(
+      words[1].inflection,
+      { form: 'none', polite: false, negative: false, past: false, progressive: false, auxiliary: '' },
+      'a missing inflection should mean uninflected',
+    );
+  });
+
+  it('coerces a model that strayed from the enums and the list', () => {
+    const { words } = parseOutput(
+      '{"translation":"Hi.","literal":"","explanation":{"grammar":[],"exceptions":[],"readings":[]},' +
+        '"words":[{"surface":"勉強しています","reading":"べんきょうしています","pronunciation":"ベンキョー シテ イマス","dictionaryForm":"","pos":"Verb","inflection":{"form":"Te","polite":"yes"},"meaning":"","note":""}]}',
+    );
+    assert.equal(words[0].pos, 'verb', 'enum values are matched case-insensitively');
+    assert.deepEqual(words[0].pronunciation, ['ベンキョー', 'シテ', 'イマス'], 'a single string is split on whitespace');
+    assert.equal(words[0].inflection.form, 'te');
+    assert.equal(words[0].inflection.polite, false, 'only a real boolean counts');
+  });
+});
+
+describe('outputSchema', () => {
+  it('requires the explanation template', () => {
+    const schema = outputSchema(false);
+    assert.deepEqual(schema.required, ['translation', 'literal', 'explanation']);
+    assert.deepEqual(schema.properties.explanation.required, ['grammar', 'exceptions', 'readings']);
+    assert.equal(schema.properties.words, undefined, 'words were in the schema without being asked for');
+  });
+
+  it('adds the breakdown only when asked', () => {
+    const schema = outputSchema(true);
+    assert.ok(schema.required.includes('words'));
+    assert.equal(schema.properties.words.items.additionalProperties, false);
+    // OpenAI strict mode: every property listed must be required.
+    const word = schema.properties.words.items;
+    assert.deepEqual(word.required.slice().sort(), Object.keys(word.properties).sort());
+  });
+
+  it('carries the breakdown conventions in the schema, not the prose', () => {
+    const word = outputSchema(true).properties.words.items.properties;
+    assert.ok(word.pos.enum.includes('particle'), 'part of speech should be an enum');
+    assert.ok(word.pos.enum.includes('punctuation'));
+    assert.equal(word.pronunciation.type, 'array', 'pronunciation should be one element per romaji word');
+    const inflection = word.inflection;
+    assert.equal(inflection.type, 'object');
+    assert.ok(inflection.properties.form.enum.includes('te'));
+    for (const flag of ['polite', 'negative', 'past', 'progressive']) {
+      assert.equal(inflection.properties[flag].type, 'boolean', `${flag} should be a flag`);
+    }
+    assert.equal(inflection.additionalProperties, false);
+    assert.deepEqual(
+      inflection.required.slice().sort(),
+      Object.keys(inflection.properties).sort(),
+    );
+  });
+
+  it('only mentions the breakdown in the prompt when asked', () => {
+    assert.ok(!/"words"/.test(systemPrompt(false)));
+    assert.ok(/"words"/.test(systemPrompt(true)));
+  });
+
+  it('asks for the three sections by name', () => {
+    for (const key of ['grammar', 'exceptions', 'readings']) {
+      assert.ok(systemPrompt(false).includes(`"${key}"`), `prompt does not mention ${key}`);
+    }
+  });
+});
+
+describe('ask prompts', () => {
+  const request = {
+    apiKey: 'k',
+    model: 'm',
+    text: '猫が好きです',
+    tokens: [],
+    translation: 'I like cats.',
+    history: [
+      { question: 'Why が?', answer: 'Because 好き marks its object with が.' },
+      { question: 'unanswered', answer: '' },
+    ],
+    question: 'Could I use を?',
+  };
+
+  it('puts the sentence and translation in the system prompt', () => {
+    const system = buildAskSystem(request);
+    assert.ok(system.includes('猫が好きです'));
+    assert.ok(system.includes('I like cats.'));
+  });
+
+  it('ends the thread with the new question and skips unanswered turns', () => {
+    const messages = buildAskMessages(request);
+    assert.deepEqual(
+      messages.map((m) => m.role),
+      ['user', 'assistant', 'user'],
+    );
+    assert.equal(messages.at(-1).content, 'Could I use を?');
   });
 });

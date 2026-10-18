@@ -11,16 +11,25 @@ import {
   credentialsFor,
   migrateSettings,
   type Analysis,
+  type AskTurn,
   type FuriganaSegment,
   type ProviderId,
   type Settings,
 } from '../lib/types';
 import type { OffscreenRequest, OffscreenResponse } from '../offscreen/offscreen';
-import { getProvider, glossTranslation, translateSentence } from '../lib/translate';
+import {
+  askAboutSentence,
+  getProvider,
+  glossTranslation,
+  translateSentence,
+  type TranslateResult,
+} from '../lib/translate';
+import { applyAiFields } from '../lib/ai-fields';
 import {
   cacheStats,
   clearCache,
   getCached,
+  isCurrent,
   putCached,
   type CacheValue,
 } from '../lib/translation-cache';
@@ -111,24 +120,11 @@ async function askOffscreen(request: OffscreenRequest): Promise<OffscreenRespons
 /** Requests currently in flight, so a new selection cancels the previous one. */
 const inFlight = new Map<string, AbortController>();
 
-/** Translations in flight, keyed by provider+model+text, to collapse duplicates. */
-const pendingTranslations = new Map<string, Promise<{ translation: { text: string }; literal?: string; note?: string }>>();
+/** Translations in flight, keyed by provider+model+text+fields, to collapse duplicates. */
+const pendingTranslations = new Map<string, Promise<TranslateResult>>();
 
-/** Attach a translation to an analysis, however it was obtained. */
-function applyTranslation(
-  analysis: Analysis,
-  model: string,
-  value: CacheValue,
-  fromCache: boolean,
-): void {
-  analysis.translation = { text: value.translation, source: 'ai', model, cached: fromCache };
-  if (value.literal) analysis.literalTranslation = value.literal;
-  if (value.note) analysis.grammarNote = value.note;
-}
-
-async function analyze(text: string, requestId: string): Promise<Analysis> {
-  const settings = await getSettings();
-
+/** The offline analysis of a sentence, straight from the worker. */
+async function analyzeOffline(text: string, settings: Settings): Promise<Analysis> {
   const response = await askOffscreen({
     target: 'offscreen',
     type: 'analyze',
@@ -140,10 +136,52 @@ async function analyze(text: string, requestId: string): Promise<Analysis> {
   if (!('analysis' in response)) throw new Error('Analyzer returned no result');
 
   const analysis = response.analysis;
-
   // Always attach the offline gloss so the panel has something to show even if
   // the model call fails or is disabled.
   analysis.translation = glossTranslation(analysis.tokens);
+  return analysis;
+}
+
+/**
+ * Attach a model result to an analysis, however it was obtained.
+ *
+ * With the standard-fields option on, the model's breakdown replaces the
+ * offline one — unless it does not line up with the sentence, in which case
+ * the offline fields stay and the panel says so.
+ */
+function applyTranslation(
+  analysis: Analysis,
+  model: string,
+  value: CacheValue,
+  fromCache: boolean,
+  settings: Settings,
+): void {
+  analysis.translation = { text: value.translation, source: 'ai', model, cached: fromCache };
+  analysis.literalTranslation = value.literal || undefined;
+  analysis.explanation = value.explanation;
+
+  if (settings.aiStandardFields && value.words) {
+    if (!applyAiFields(analysis, value.words, settings.romajiStyle)) {
+      analysis.warnings.push(
+        'The model’s breakdown did not match the sentence, so the offline reading and breakdown are shown.',
+      );
+    }
+  }
+}
+
+/** The cacheable part of a model result. */
+function cacheValueOf(result: TranslateResult): CacheValue {
+  return {
+    translation: result.translation.text,
+    literal: result.literal,
+    explanation: result.explanation,
+    words: result.words,
+  };
+}
+
+async function analyze(text: string, requestId: string): Promise<Analysis> {
+  const settings = await getSettings();
+  const analysis = await analyzeOffline(text, settings);
 
   const provider = getProvider(settings.provider);
   const { apiKey, model } = credentialsFor(settings);
@@ -151,10 +189,13 @@ async function analyze(text: string, requestId: string): Promise<Analysis> {
   if (!settings.aiTranslation || !apiKey) return analysis;
 
   // Checked before the permission and the network call: a translation already
-  // paid for costs nothing to reuse.
+  // paid for costs nothing to reuse. An entry that predates the explanation
+  // template, or lacks the breakdown now being asked for, is asked again —
+  // but kept as a fallback should that call fail.
+  const need = { fields: settings.aiStandardFields };
   const cached = await getCached(analysis.text, settings.provider, model);
-  if (cached) {
-    applyTranslation(analysis, model, cached, true);
+  if (cached && isCurrent(cached, need)) {
+    applyTranslation(analysis, model, cached, true, settings);
     return analysis;
   }
 
@@ -164,6 +205,7 @@ async function analyze(text: string, requestId: string): Promise<Analysis> {
     analysis.warnings.push(
       `AI translation needs permission for ${host} — re-enable it in the extension options.`,
     );
+    if (cached) applyTranslation(analysis, model, cached, true, settings);
     return analysis;
   }
 
@@ -173,7 +215,7 @@ async function analyze(text: string, requestId: string): Promise<Analysis> {
 
   try {
     // Two tabs analysing the same sentence at once should make one API call.
-    const key = `${settings.provider}:${model}:${analysis.text}`;
+    const key = `${settings.provider}:${model}:${need.fields}:${analysis.text}`;
     let pending = pendingTranslations.get(key);
     if (!pending) {
       pending = translateSentence({
@@ -182,24 +224,23 @@ async function analyze(text: string, requestId: string): Promise<Analysis> {
         model,
         text: analysis.text,
         tokens: analysis.tokens,
+        fields: need.fields,
         signal: controller.signal,
       }).finally(() => pendingTranslations.delete(key));
       pendingTranslations.set(key, pending);
     }
     const result = await pending;
 
-    const value: CacheValue = {
-      translation: result.translation.text,
-      literal: result.literal,
-      note: result.note,
-    };
-    applyTranslation(analysis, model, value, false);
+    const value = cacheValueOf(result);
+    applyTranslation(analysis, model, value, false, settings);
     await putCached(analysis.text, settings.provider, model, value);
   } catch (err) {
     if (!controller.signal.aborted) {
       analysis.warnings.push(
         `Translation unavailable: ${err instanceof Error ? err.message : String(err)}`,
       );
+      // Better the older answer than none.
+      if (cached) applyTranslation(analysis, model, cached, true, settings);
     }
   } finally {
     inFlight.delete(requestId);
@@ -302,54 +343,111 @@ async function ankiSend(items: SavedItem[]): Promise<Record<string, unknown>> {
 
 /* ------------------------------ regeneration ------------------------------ */
 
+/** The key and model for a provider, or the reason it cannot be used right now. */
+async function usableProvider(
+  requested: ProviderId | undefined,
+  settings: Settings,
+): Promise<{ id: ProviderId; apiKey: string; model: string } | { error: string }> {
+  const id = requested ?? settings.provider;
+  const provider = getProvider(id);
+  const { apiKey, model } = credentialsFor(settings, id);
+
+  if (!apiKey) return { error: `No API key configured for ${provider.label}.` };
+
+  const hasPermission = await chrome.permissions.contains({ origins: [provider.origin] });
+  if (!hasPermission) {
+    const host = new URL(provider.origin.replace('/*', '')).host;
+    return { error: `Permission for ${host} has not been granted.` };
+  }
+  return { id, apiKey, model };
+}
+
 /**
  * Translate again, ignoring the cache, optionally on a different provider.
  *
  * The fresh result replaces the cache entry and, if the sentence is saved, its
  * stored snapshot — a user regenerates because the last answer was not good
  * enough, so the old one should not linger anywhere.
+ *
+ * Returns a whole analysis rather than just the meaning: with the
+ * standard-fields option on, the reading and breakdown change too. The
+ * offline analysis is re-run first so the model always works from the
+ * analyser's segmentation, never from its own previous answer.
  */
 async function regenerate(
-  analysis: Analysis,
+  text: string,
   requested?: ProviderId,
 ): Promise<Record<string, unknown>> {
   const settings = await getSettings();
-  const id = requested ?? settings.provider;
-  const provider = getProvider(id);
-  const { apiKey, model } = credentialsFor(settings, id);
-
-  if (!apiKey) return { ok: false, error: `No API key configured for ${provider.label}.` };
-
-  const hasPermission = await chrome.permissions.contains({ origins: [provider.origin] });
-  if (!hasPermission) {
-    const host = new URL(provider.origin.replace('/*', '')).host;
-    return { ok: false, error: `Permission for ${host} has not been granted.` };
-  }
+  const usable = await usableProvider(requested, settings);
+  if ('error' in usable) return { ok: false, error: usable.error };
+  const { id, apiKey, model } = usable;
 
   try {
+    const analysis = await analyzeOffline(text, settings);
     const result = await translateSentence({
       provider: id,
       apiKey,
       model,
       text: analysis.text,
       tokens: analysis.tokens,
+      fields: settings.aiStandardFields,
     });
 
-    const value: CacheValue = {
-      translation: result.translation.text,
-      literal: result.literal,
-      note: result.note,
-    };
+    const value = cacheValueOf(result);
+    applyTranslation(analysis, model, value, false, settings);
     await putCached(analysis.text, id, model, value);
-    await updateTranslation(analysis.text, {
-      translation: value.translation,
-      translationSource: 'ai',
-      translationModel: model,
-      literal: value.literal,
-      note: value.note,
-    });
+    await updateTranslation(
+      analysis.text,
+      {
+        translation: value.translation,
+        translationSource: 'ai',
+        translationModel: model,
+        literal: value.literal,
+        explanation: value.explanation,
+      },
+      // The reading may be the model's now, or a fresher offline one.
+      { romaji: analysis.romaji, kana: analysis.kana },
+    );
 
-    return { ok: true, provider: id, model, ...value };
+    return { ok: true, provider: id, model, analysis };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/**
+ * Answer a question about a sentence. Never cached: a question is rarely
+ * asked twice, and the thread so far is part of the input.
+ */
+async function ask(
+  analysis: Analysis,
+  question: string,
+  history: AskTurn[],
+  requested?: ProviderId,
+): Promise<Record<string, unknown>> {
+  const settings = await getSettings();
+  const usable = await usableProvider(requested, settings);
+  if ('error' in usable) return { ok: false, error: usable.error };
+  const { id, apiKey, model } = usable;
+
+  const trimmed = question.trim();
+  if (!trimmed) return { ok: false, error: 'Type a question first.' };
+
+  try {
+    const answer = await askAboutSentence({
+      provider: id,
+      apiKey,
+      model,
+      text: analysis.text,
+      tokens: analysis.tokens,
+      translation: analysis.translation?.source === 'ai' ? analysis.translation.text : undefined,
+      // Keep the thread bounded; the sentence is short and so should the
+      // conversation be.
+      history: history.slice(-6),
+      question: trimmed,
+    });
+    return { ok: true, provider: id, model, answer };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
@@ -361,6 +459,8 @@ interface AnalyzeMessage {
   type: 'analyze';
   text: string;
   requestId: string;
+  /** Just the offline analysis, without waiting on the model. */
+  offlineOnly?: boolean;
 }
 interface SettingsMessage {
   type: 'getSettings' | 'setSettings';
@@ -419,7 +519,14 @@ interface ClearCacheMessage {
 }
 interface RegenerateMessage {
   type: 'regenerate';
+  text: string;
+  provider?: ProviderId;
+}
+interface AskMessage {
+  type: 'ask';
   analysis: Analysis;
+  question: string;
+  history: AskTurn[];
   provider?: ProviderId;
 }
 
@@ -438,11 +545,23 @@ type BackgroundMessage =
   | AnkiSendMessage
   | CacheStatsMessage
   | ClearCacheMessage
-  | RegenerateMessage;
+  | RegenerateMessage
+  | AskMessage;
 
 /** Settings with the API keys stripped, for contexts that must not see them. */
 function redactKeys(settings: Settings): Settings {
   return { ...settings, ...Object.fromEntries(API_KEY_SETTINGS.map((key) => [key, ''])) };
+}
+
+/**
+ * Is this message from a content script running in a web page?
+ *
+ * `sender.tab` alone does not answer that: the options page opens in a tab
+ * too, and it has to see the stored keys or its next save would wipe them.
+ * Our own pages are told apart by their URL.
+ */
+function fromContentScript(sender: chrome.runtime.MessageSender): boolean {
+  return Boolean(sender.tab) && !(sender.url ?? '').startsWith(chrome.runtime.getURL(''));
 }
 
 chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: string }, sender, sendResponse) => {
@@ -453,14 +572,19 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: st
     try {
       switch (message.type) {
         case 'analyze':
-          sendResponse({ ok: true, analysis: await analyze(message.text, message.requestId) });
+          sendResponse({
+            ok: true,
+            analysis: message.offlineOnly
+              ? await analyzeOffline(message.text, await getSettings())
+              : await analyze(message.text, message.requestId),
+          });
           return;
         case 'getSettings': {
           const settings = await getSettings();
           sendResponse({
             ok: true,
             // A content script has no use for the keys, so it does not get them.
-            settings: sender.tab ? redactKeys(settings) : settings,
+            settings: fromContentScript(sender) ? redactKeys(settings) : settings,
             providers: availableProviders(settings),
           });
           return;
@@ -516,7 +640,12 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: st
           sendResponse({ ok: true });
           return;
         case 'regenerate':
-          sendResponse(await regenerate(message.analysis, message.provider));
+          sendResponse(await regenerate(message.text, message.provider));
+          return;
+        case 'ask':
+          sendResponse(
+            await ask(message.analysis, message.question, message.history ?? [], message.provider),
+          );
           return;
         default:
           sendResponse({ ok: false, error: 'Unknown message' });

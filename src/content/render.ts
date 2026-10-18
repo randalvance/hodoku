@@ -7,18 +7,58 @@
  */
 
 import type { Analysis, AvailableProvider, WordToken } from '../lib/types';
+import { EXPLANATION_SECTIONS, hasExplanation, type Explanation } from '../lib/explanation';
+
+/** One question in the "ask about this sentence" thread, and what came back. */
+export interface AskEntry {
+  question: string;
+  answer?: string;
+  error?: string;
+}
+
+/**
+ * The ask thread as the live panel holds it. The panel re-renders from
+ * scratch on every change, so everything the control shows lives here.
+ */
+export interface AskState {
+  open: boolean;
+  thread: AskEntry[];
+  /** A question is out and no answer has come back yet. */
+  pending: boolean;
+  /** What is typed in the box, so a re-render does not lose it. */
+  draft: string;
+  onOpen: () => void;
+  onClose: () => void;
+  onDraft: (value: string) => void;
+  onSend: (question: string, provider: string) => void;
+}
 
 export interface RenderOptions {
   showFurigana: boolean;
   /**
-   * Providers with a key configured. Only these are offered for regeneration —
-   * listing one without a key would just produce an error on click.
+   * Providers with a key configured. Only these are offered for regeneration
+   * and questions — listing one without a key would just produce an error on
+   * click.
    */
   providers?: AvailableProvider[];
   /** Supplied only by the live panel; store previews omit it and get no control. */
   onRegenerate?: (provider: string) => void;
   /** Set while a regeneration is in flight. */
   regenerating?: boolean;
+  /**
+   * The provider the picker shows. The panel is rebuilt on every change, so
+   * the choice has to be held outside the DOM or each rebuild would reset it
+   * to the first provider.
+   */
+  provider?: string;
+  onProviderChange?: (provider: string) => void;
+  /** Supplied only by the live panel, and only when a provider can answer. */
+  ask?: AskState;
+  /**
+   * The offline analysis is on screen and the model's translation is still
+   * on its way. The meaning section says so, and Regenerate waits.
+   */
+  translating?: boolean;
 }
 
 export function el<K extends keyof HTMLElementTagNameMap>(
@@ -41,6 +81,10 @@ const ICON_PATHS: Record<string, string> = {
   close: 'M4 4l8 8 M12 4l-8 8',
   check: 'M3.5 8.5l3 3 6-7',
   bookmark: 'M4 2.5h8v11l-4-3-4 3z',
+  // A circular arrow: ask again.
+  regenerate: 'M12.6 9.5A4.8 4.8 0 1 1 11.5 4.6 M12.7 2.3v2.6h-2.6',
+  // A speech bubble: ask a question.
+  ask: 'M3 3.5h10v6.5H7.5L4.5 12.5v-2.5H3z',
 };
 
 function iconSvg(name: string): SVGSVGElement {
@@ -116,8 +160,50 @@ export function renderSource(analysis: Analysis, options: RenderOptions): HTMLEl
   return source;
 }
 
-/** Everything between the header and the footer. */
+/**
+ * Marks fields the model produced rather than the offline analyser, so a
+ * reading that came from a model is never mistaken for the dictionary's.
+ */
+function aiFieldsBadge(analysis: Analysis): HTMLElement {
+  const badge = el('span', 'badge-source badge-source--ai');
+  badge.textContent = 'AI';
+  const model = analysis.translation?.model ?? 'the model';
+  badge.title = analysis.translation?.cached
+    ? `Reading and breakdown by ${model} — reused from the local cache`
+    : `Reading and breakdown by ${model}`;
+  if (analysis.translation?.cached) badge.classList.add('badge-source--cached');
+  return badge;
+}
+
+/**
+ * Everything between the header and the footer, as columns: the reading and
+ * meaning, then the breakdown, then — while a question thread is open — the
+ * chat. The body that holds them lays them out side by side when there is
+ * room and stacks them otherwise.
+ */
 export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+  const main = el('div', 'panel__main');
+  const side = el('div', 'panel__side');
+  for (const node of renderMain(analysis, options)) main.appendChild(node);
+  for (const node of renderBreakdown(analysis, options)) side.appendChild(node);
+
+  const columns: HTMLElement[] = [main, side];
+  if (options.ask?.open && options.providers?.length) {
+    columns.push(renderChat(options.ask, () => pickedProvider(options)));
+  }
+  return columns;
+}
+
+/** The provider the controls act on: the picked one if it is still configured, else the first. */
+function pickedProvider(options: RenderOptions): string {
+  const providers = options.providers ?? [];
+  return options.provider && providers.some((p) => p.id === options.provider)
+    ? options.provider
+    : providers[0].id;
+}
+
+/** The reading, the meaning, and any warnings. */
+function renderMain(analysis: Analysis, options: RenderOptions): HTMLElement[] {
   const nodes: HTMLElement[] = [];
 
   const romaji = el('div', 'romaji');
@@ -125,6 +211,7 @@ export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElem
   const romajiText = el('div', 'romaji__text');
   romajiText.textContent = analysis.romaji || '—';
   row.appendChild(romajiText);
+  if (analysis.aiFields) row.appendChild(aiFieldsBadge(analysis));
   romaji.appendChild(row);
 
   if (analysis.kana && analysis.kana !== analysis.text) {
@@ -156,19 +243,24 @@ export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElem
     meaning.appendChild(badge);
     section.appendChild(meaning);
 
+    if (options.translating) {
+      const pending = el('div', 'meaning__pending');
+      pending.appendChild(el('div', 'spinner'));
+      const text = el('span');
+      const provider = (options.providers ?? []).find((p) => p.id === pickedProvider(options));
+      text.textContent = provider ? `Translating with ${provider.label}…` : 'Translating…';
+      pending.appendChild(text);
+      section.appendChild(pending);
+    }
+
     if (analysis.literalTranslation) {
       const literal = el('div', 'meaning__literal');
       literal.textContent = analysis.literalTranslation;
       section.appendChild(literal);
     }
-    if (analysis.grammarNote) {
-      const note = el('div', 'meaning__note');
-      note.textContent = analysis.grammarNote;
-      section.appendChild(note);
-    }
+    const explanation = renderExplanation(analysis.explanation);
+    if (explanation) section.appendChild(explanation);
 
-    const actions = renderRegenerate(options);
-    if (actions) section.appendChild(actions);
 
     nodes.push(section);
   }
@@ -183,12 +275,20 @@ export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElem
     nodes.push(wrap);
   }
 
+  return nodes;
+}
+
+/** The word-by-word breakdown with its heading. */
+function renderBreakdown(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+  const nodes: HTMLElement[] = [];
+
   const breakdownLabel = el('div', 'section');
   breakdownLabel.style.paddingBottom = '0';
   breakdownLabel.style.borderBottom = '0';
   const label = el('span', 'section__label');
   const wordCount = analysis.tokens.filter((t) => !t.isPunctuation).length;
   label.textContent = `Breakdown · ${wordCount} word${wordCount === 1 ? '' : 's'}`;
+  if (analysis.aiFields) label.appendChild(aiFieldsBadge(analysis));
   breakdownLabel.appendChild(label);
   nodes.push(breakdownLabel);
 
@@ -199,51 +299,182 @@ export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElem
   return nodes;
 }
 
-/** Regenerate control: a button, plus a provider picker when there is a choice. */
-function renderRegenerate(options: RenderOptions): HTMLElement | null {
-  const providers = options.providers ?? [];
-  if (!options.onRegenerate || !providers.length) return null;
+/**
+ * The model's notes, one block per template section that has anything in it.
+ * Nothing at all when every section is empty — an empty template is noise.
+ */
+export function renderExplanation(explanation: Explanation | undefined): HTMLElement | null {
+  if (!hasExplanation(explanation)) return null;
 
-  const row = el('div', 'meaning__actions');
+  const wrap = el('div', 'meaning__explanation');
+  for (const { key, label } of EXPLANATION_SECTIONS) {
+    const items = explanation[key];
+    if (!items?.length) continue;
+
+    const section = el('div', 'explanation__section');
+    const heading = el('span', 'explanation__label');
+    heading.textContent = label;
+    section.appendChild(heading);
+
+    const list = el('ul', 'explanation__list');
+    for (const item of items) {
+      const li = document.createElement('li');
+      li.textContent = item;
+      list.appendChild(li);
+    }
+    section.appendChild(list);
+    wrap.appendChild(section);
+  }
+  return wrap;
+}
+
+/**
+ * The model actions for the header bar: Regenerate and Ask as icon buttons,
+ * plus a provider picker when there is a choice. Nothing at all unless a
+ * provider has a key — a control that could only fail is worse than none.
+ */
+export function renderModelActions(options: RenderOptions): HTMLElement[] {
+  const providers = options.providers ?? [];
+  if ((!options.onRegenerate && !options.ask) || !providers.length) return [];
+
+  const busy =
+    Boolean(options.regenerating) || Boolean(options.ask?.pending) || Boolean(options.translating);
+  const current = pickedProvider(options);
+  const label = providers.find((p) => p.id === current)?.label ?? current;
+  const nodes: HTMLElement[] = [];
+
+  if (options.onRegenerate) {
+    const button = iconButton('regenerate', `Regenerate with ${label}`);
+    button.dataset.action = 'regenerate';
+    button.disabled = busy;
+    if (options.regenerating) {
+      button.classList.add('icon-btn--busy');
+      button.title = 'Regenerating…';
+    }
+    button.addEventListener('click', () => options.onRegenerate?.(pickedProvider(options)));
+    nodes.push(button);
+  }
+
+  if (options.ask) {
+    const open = options.ask.open;
+    const button = iconButton('ask', open ? 'Close the question thread' : `Ask ${label} about this sentence`);
+    button.dataset.action = 'ask';
+    button.setAttribute('aria-pressed', String(open));
+    button.disabled = Boolean(options.ask.pending);
+    button.addEventListener('click', () => (open ? options.ask?.onClose() : options.ask?.onOpen()));
+    nodes.push(button);
+  }
+
+  // With one configured provider there is nothing to choose; the tooltips
+  // above already say which one it is. With more, a button cycles through
+  // them. (Not a <select>: one in the panel header makes Chrome drop the
+  // caret to the start of the chat box after every inserted character.)
+  if (providers.length > 1) {
+    const index = providers.findIndex((p) => p.id === current);
+    const next = providers[(index + 1) % providers.length];
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mini-btn mini-btn--provider';
+    button.dataset.action = 'provider';
+    button.dataset.provider = current;
+    button.textContent = shortLabel(label);
+    button.title = `Using ${label}. Click to switch to ${next.label}.`;
+    button.disabled = busy;
+    button.addEventListener('click', () => options.onProviderChange?.(next.id));
+    nodes.push(button);
+  }
+
+  return nodes;
+}
+
+/** "Claude (Anthropic)" → "Claude": the header has no room for the rest. */
+function shortLabel(label: string): string {
+  return label.replace(/\s*\(.*\)\s*$/, '');
+}
+
+/**
+ * The question thread as a chat column: the exchanges so far in a scrolling
+ * log, the box for the next question pinned underneath. Lives beside the
+ * breakdown while open, so the meaning stays in view as the answers come in.
+ */
+function renderChat(ask: AskState, provider: () => string): HTMLElement {
+  const column = el('div', 'panel__chat');
+
+  const head = el('div', 'chat__head');
+  const title = el('span', 'section__label');
+  title.textContent = 'Ask about this sentence';
+  head.appendChild(title);
+  const close = iconButton('close', 'Close the thread');
+  close.addEventListener('click', () => ask.onClose());
+  head.appendChild(close);
+  column.appendChild(head);
+
+  const log = el('div', 'chat__log');
+  if (!ask.thread.length) {
+    const hint = el('div', 'chat__hint');
+    hint.textContent =
+      'Ask anything about this sentence — why a particle was used, the nuance of a word, how else to say it. Follow-ups keep the thread in mind.';
+    log.appendChild(hint);
+  }
+  for (const entry of ask.thread) {
+    const question = el('div', 'ask__q');
+    question.textContent = entry.question;
+    log.appendChild(question);
+    if (entry.answer) {
+      const answer = el('div', 'ask__a');
+      answer.textContent = entry.answer;
+      log.appendChild(answer);
+    } else if (entry.error) {
+      const error = el('div', 'ask__err');
+      error.textContent = entry.error;
+      log.appendChild(error);
+    }
+  }
+  if (ask.pending) {
+    const pending = el('div', 'ask__pending');
+    pending.appendChild(el('div', 'spinner'));
+    const text = el('span');
+    text.textContent = 'Thinking…';
+    pending.appendChild(text);
+    log.appendChild(pending);
+  }
+  column.appendChild(log);
+
+  const form = el('div', 'chat__form');
+  const input = document.createElement('textarea');
+  input.className = 'ask__input';
+  input.rows = 2;
+  input.placeholder = ask.thread.length ? 'Ask a follow-up…' : 'Your question…';
+  input.setAttribute('aria-label', 'Your question about this sentence');
+  input.value = ask.draft;
+  input.disabled = ask.pending;
+  input.addEventListener('input', () => ask.onDraft(input.value));
+
+  const send = () => {
+    const question = input.value.trim();
+    if (!question || ask.pending) return;
+    ask.onSend(question, provider());
+  };
+  // Enter sends; Shift+Enter makes a new line, as in any chat box.
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      send();
+    }
+  });
 
   const button = document.createElement('button');
   button.type = 'button';
-  button.className = 'mini-btn';
-  button.disabled = Boolean(options.regenerating);
-  button.textContent = options.regenerating ? 'Regenerating…' : 'Regenerate';
-  button.title = 'Ask again, ignoring the cached result';
+  button.className = 'mini-btn mini-btn--send';
+  button.textContent = 'Send';
+  button.disabled = ask.pending;
+  button.addEventListener('click', send);
 
-  // With one configured provider there is nothing to choose, so the button
-  // simply says which one it will use.
-  if (providers.length === 1) {
-    button.addEventListener('click', () => options.onRegenerate?.(providers[0].id));
-    row.append(button, labelFor(providers[0]));
-    return row;
-  }
-
-  const select = document.createElement('select');
-  select.className = 'mini-select';
-  select.title = 'Which provider to ask';
-  for (const provider of providers) {
-    const option = document.createElement('option');
-    option.value = provider.id;
-    option.textContent = provider.label;
-    option.title = provider.model;
-    select.appendChild(option);
-  }
-  select.disabled = Boolean(options.regenerating);
-
-  button.addEventListener('click', () => options.onRegenerate?.(select.value));
-  row.append(button, select);
-  return row;
+  form.append(input, button);
+  column.appendChild(form);
+  return column;
 }
 
-function labelFor(provider: AvailableProvider): HTMLElement {
-  const label = el('span', 'meaning__provider');
-  label.textContent = provider.label;
-  label.title = provider.model;
-  return label;
-}
 
 export function renderWord(token: WordToken, options: RenderOptions): HTMLElement {
   const word = el('div', token.isPunctuation ? 'word word--punct' : 'word');

@@ -30,6 +30,7 @@ const fields = {
   showSelectionButton: $<HTMLInputElement>('showSelectionButton'),
   autoAnalyze: $<HTMLInputElement>('autoAnalyze'),
   aiTranslation: $<HTMLInputElement>('aiTranslation'),
+  aiStandardFields: $<HTMLInputElement>('aiStandardFields'),
   ankiEnabled: $<HTMLInputElement>('ankiEnabled'),
   ankiUrl: $<HTMLInputElement>('ankiUrl'),
   ankiDeck: $<HTMLInputElement>('ankiDeck'),
@@ -61,6 +62,7 @@ async function init(): Promise<void> {
   fields.showSelectionButton.checked = settings.showSelectionButton;
   fields.autoAnalyze.checked = settings.autoAnalyze;
   fields.aiTranslation.checked = settings.aiTranslation;
+  fields.aiStandardFields.checked = settings.aiStandardFields;
 
   fields.ankiEnabled.checked = settings.ankiEnabled;
   fields.ankiUrl.value = settings.ankiUrl;
@@ -391,6 +393,7 @@ function collectSettings(): Partial<Settings> {
     showSelectionButton: fields.showSelectionButton.checked,
     autoAnalyze: fields.autoAnalyze.checked,
     aiTranslation: fields.aiTranslation.checked,
+    aiStandardFields: fields.aiStandardFields.checked,
     ankiEnabled: fields.ankiEnabled.checked,
     ankiUrl: fields.ankiUrl.value.trim(),
     ankiDeck: fields.ankiDeck.value.trim(),

@@ -1,8 +1,9 @@
 import type { RomajiStyle } from './romaji';
 import { PROVIDERS, PROVIDER_IDS, type ProviderId } from './providers/registry';
 import { DEFAULT_ANKI_CONFIG, type AnkiConfig } from './anki';
+import type { Explanation } from './explanation';
 
-export type { RomajiStyle, ProviderId };
+export type { RomajiStyle, ProviderId, Explanation };
 
 export interface FuriganaSegment {
   text: string;
@@ -68,6 +69,97 @@ export interface Translation {
   cached?: boolean;
 }
 
+/**
+ * One entry of a model-produced breakdown — the raw shape the model returns,
+ * before it is turned into a WordToken.
+ *
+ * As much of this as possible is carried by the output schema rather than by
+ * instructions: the part of speech is an enum, the inflection is a small
+ * object of enums and flags, and the pronunciation is a list of romaji words.
+ * The output schema requires every key, so "not applicable" is an empty
+ * string, an empty list, or the enum's "none".
+ */
+export interface AiWord {
+  /** Text exactly as it appears in the sentence. */
+  surface: string;
+  /** Hiragana reading as written; empty for punctuation. */
+  reading: string;
+  /**
+   * Katakana reading as pronounced, with ー for long vowels, one element per
+   * romaji word (勉強しています → ["ベンキョー", "シテ", "イマス"]). Empty for
+   * punctuation.
+   */
+  pronunciation: string[];
+  /** Dictionary form when the surface is inflected, otherwise empty. */
+  dictionaryForm: string;
+  pos: AiPos;
+  inflection: AiInflection;
+  /** What the word means in this sentence. */
+  meaning: string;
+  /** Short usage note, or empty. */
+  note: string;
+}
+
+/** Parts of speech the model may assign, as the schema enumerates them. */
+export const AI_POS = [
+  'noun',
+  'pronoun',
+  'number',
+  'counter',
+  'verb',
+  'i-adjective',
+  'na-adjective',
+  'adverb',
+  'particle',
+  'auxiliary',
+  'copula',
+  'conjunction',
+  'prefix',
+  'suffix',
+  'expression',
+  'interjection',
+  'punctuation',
+  'other',
+] as const;
+export type AiPos = (typeof AI_POS)[number];
+
+/** Conjugations of the main word, as the schema enumerates them. */
+export const AI_FORMS = [
+  'none',
+  'dictionary',
+  'stem',
+  'te',
+  'ta',
+  'nai',
+  'ba',
+  'tara',
+  'volitional',
+  'imperative',
+  'potential',
+  'passive',
+  'causative',
+  'causative-passive',
+  'other',
+] as const;
+export type AiForm = (typeof AI_FORMS)[number];
+
+/**
+ * How a word is inflected, as a set of facts rather than a phrase. The
+ * learner-facing label ("Te-form + いる, polite") is built from these.
+ */
+export interface AiInflection {
+  /** Conjugation of the main word; "none" for anything that does not conjugate. */
+  form: AiForm;
+  /** ます / です politeness. */
+  polite: boolean;
+  negative: boolean;
+  past: boolean;
+  /** ている / てる attached. */
+  progressive: boolean;
+  /** Any other auxiliary attached, in Japanese (しまう, たい, そう), or empty. */
+  auxiliary: string;
+}
+
 export interface Analysis {
   /** Source text after normalisation. */
   text: string;
@@ -79,8 +171,13 @@ export interface Analysis {
   translation?: Translation;
   /** Structure-preserving rendering, when a model produced one. */
   literalTranslation?: string;
-  /** One-sentence grammar note, when a model produced one. */
-  grammarNote?: string;
+  /** Templated notes on grammar, exceptions and readings, when a model produced them. */
+  explanation?: Explanation;
+  /**
+   * True when the reading and breakdown came from the translation model rather
+   * than the offline analyser (the "AI standard fields" option).
+   */
+  aiFields?: boolean;
   /** Non-fatal problems worth surfacing (dictionary missing, API failed, ...). */
   warnings: string[];
   /** Milliseconds spent analysing, for the debug readout. */
@@ -97,6 +194,12 @@ export interface Settings {
   showFurigana: boolean;
   /** Use a model for a natural-sounding sentence translation. */
   aiTranslation: boolean;
+  /**
+   * Let the model also produce the standard fields — the reading and the
+   * word-by-word breakdown — in place of the offline analyser's. Off by
+   * default: the offline result is free, instant, and usually right.
+   */
+  aiStandardFields: boolean;
   /** Which provider the AI translation uses. */
   provider: ProviderId;
   /**
@@ -129,6 +232,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoAnalyze: false,
   showFurigana: true,
   aiTranslation: false,
+  aiStandardFields: false,
   provider: 'anthropic',
   anthropicApiKey: '',
   anthropicModel: 'claude-opus-5',
@@ -237,6 +341,12 @@ export function availableProviders(settings: Settings): AvailableProvider[] {
 }
 
 /* ---------- Messaging contract between content script and background ---------- */
+
+/** One exchange in the "ask about this sentence" thread. */
+export interface AskTurn {
+  question: string;
+  answer: string;
+}
 
 export type RequestMessage =
   | { type: 'analyze'; text: string; requestId: string }

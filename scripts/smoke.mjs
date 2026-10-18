@@ -338,6 +338,13 @@ async function main() {
         provider: 'anthropic',
         model: 'claude-opus-5',
         translation: CACHED,
+        // Without the explanation template the entry counts as stale and the
+        // extension would (correctly) try the API again.
+        explanation: {
+          grammar: ['ています marks an action in progress.'],
+          exceptions: [],
+          readings: [],
+        },
         createdAt: Date.now(),
         lastUsedAt: Date.now(),
         hits: 0,
@@ -345,11 +352,31 @@ async function main() {
       EXPECTED_TEXT,
     );
 
+    // The options page is an extension page that happens to live in a tab,
+    // not a content script: it must be shown the stored key, or its next
+    // save would silently wipe it.
+    await seeder.reload({ waitUntil: 'domcontentloaded' });
+    await seeder
+      .waitForFunction(() => document.getElementById('apiKey')?.value === 'sk-ant-not-a-real-key', {
+        timeout: 10_000,
+      })
+      .catch(async () => {
+        const shown = await seeder.evaluate(() => document.getElementById('apiKey')?.value);
+        fail(`the options page did not show the stored API key (field held "${shown}")`);
+      });
+    console.log('   options page shows the stored key');
+
     await clickBox(await selectAndFindTrigger());
+    // The offline result renders first; the meaning is read once the
+    // model phase has settled (here: instantly, from the cache).
     await page.waitForFunction(
-      () =>
-        document.getElementById('hodoku-host')?.shadowRoot?.querySelector('.romaji__text')
-          ?.textContent?.length > 0,
+      () => {
+        const shadow = document.getElementById('hodoku-host')?.shadowRoot;
+        return (
+          shadow?.querySelector('.romaji__text')?.textContent?.length > 0 &&
+          !shadow.querySelector('.meaning__pending')
+        );
+      },
       { timeout: TIMEOUT_MS, polling: 250 },
     );
 
@@ -359,6 +386,10 @@ async function main() {
         meaning: shadow.querySelector('.meaning')?.textContent?.trim() ?? '',
         badgeTitle: shadow.querySelector('.badge-source')?.getAttribute('title') ?? '',
         isCached: shadow.querySelector('.badge-source--cached') != null,
+        explanation: [...shadow.querySelectorAll('.explanation__section')].map((n) => ({
+          label: n.querySelector('.explanation__label')?.textContent,
+          items: [...n.querySelectorAll('li')].map((li) => li.textContent),
+        })),
         warnings: [...shadow.querySelectorAll('.warning')].map((n) => n.textContent.trim()),
       };
     });
@@ -372,7 +403,14 @@ async function main() {
       // A permission or API warning here means it tried to call out despite the hit.
       fail(`a cache hit still attempted the API: ${cachedView.warnings.join('; ')}`);
     }
-    console.log('   served from cache, no API call, no warnings');
+    // Only the section with something in it is rendered, under its template label.
+    if (cachedView.explanation.length !== 1 || cachedView.explanation[0].label !== 'Grammar') {
+      fail(`explanation rendered as ${JSON.stringify(cachedView.explanation)}`);
+    }
+    if (!/ています/.test(cachedView.explanation[0].items[0] ?? '')) {
+      fail('the grammar note from the cache was not shown');
+    }
+    console.log('   served from cache, no API call, no warnings, explanation shown');
 
     // Put settings back so the remaining steps behave like a default install.
     await seeder.evaluate(() =>
@@ -382,7 +420,7 @@ async function main() {
     await page.bringToFront();
     await page.mouse.click(5, 5);
 
-    console.log('11. the regenerate control offers only configured providers');
+    console.log('11. the header offers Regenerate and Ask only for configured providers');
     const seedSettings = async (patch) => {
       await seeder2.evaluate((p) => chrome.storage.local.set(p), patch);
       // The content script reloads its provider list on the storage change.
@@ -396,21 +434,29 @@ async function main() {
     const readControl = () =>
       page.evaluate(() => {
         const shadow = document.getElementById('hodoku-host')?.shadowRoot;
-        const select = shadow?.querySelector('.mini-select');
+        const regenerate = shadow?.querySelector('.panel__actions [data-action="regenerate"]');
+        const ask = shadow?.querySelector('.panel__actions [data-action="ask"]');
+        const provider = shadow?.querySelector('.panel__actions [data-action="provider"]');
         return {
-          button: shadow?.querySelector('.mini-btn')?.textContent?.trim() ?? null,
-          options: select ? [...select.options].map((o) => o.textContent) : null,
-          single: shadow?.querySelector('.meaning__provider')?.textContent?.trim() ?? null,
+          // The header buttons are icons; their tooltips carry the words.
+          button: regenerate?.title ?? null,
+          ask: ask?.title ?? null,
+          provider: provider ? { label: provider.textContent, title: provider.title } : null,
         };
       });
 
     const openPanel = async () => {
       await page.bringToFront();
       await clickBox(await selectAndFindTrigger());
+      // Until the model phase settles, Regenerate is disabled; wait it out.
       await page.waitForFunction(
-        () =>
-          document.getElementById('hodoku-host')?.shadowRoot?.querySelector('.romaji__text')
-            ?.textContent?.length > 0,
+        () => {
+          const shadow = document.getElementById('hodoku-host')?.shadowRoot;
+          return (
+            shadow?.querySelector('.romaji__text')?.textContent?.length > 0 &&
+            !shadow.querySelector('.meaning__pending')
+          );
+        },
         { timeout: TIMEOUT_MS, polling: 250 },
       );
     };
@@ -418,31 +464,37 @@ async function main() {
     // No keys at all: nothing to regenerate with, so no control.
     await seedSettings({ aiTranslation: true, anthropicApiKey: '', openaiApiKey: '' });
     await openPanel();
-    if ((await readControl()).button) fail('the regenerate control appeared with no API key');
+    const none = await readControl();
+    if (none.button) fail('the regenerate control appeared with no API key');
+    if (none.ask) fail('the ask control appeared with no API key');
     await page.mouse.click(5, 5);
 
     // One key: a button that names the provider, and no pointless dropdown.
     await seedSettings({ anthropicApiKey: 'sk-ant-not-real' });
     await openPanel();
     const one = await readControl();
-    if (one.button !== 'Regenerate') fail(`expected a Regenerate button, saw ${one.button}`);
-    if (one.options) fail('a dropdown appeared with only one provider configured');
-    if (!/Claude/.test(one.single ?? '')) fail(`provider label was ${one.single}`);
+    if (!/^Regenerate/.test(one.button ?? '')) fail(`expected a Regenerate button, saw ${one.button}`);
+    if (!/^Ask/.test(one.ask ?? '')) fail(`expected an Ask button next to it, saw ${one.ask}`);
+    if (one.provider) fail('a provider switch appeared with only one provider configured');
+    if (!/Claude/.test(one.button ?? '')) fail(`the button does not say which provider: ${one.button}`);
     await page.mouse.click(5, 5);
 
-    // Two keys: a dropdown listing exactly those two.
+    // Two keys: a switch that names the current provider and the next one.
     await seedSettings({ openaiApiKey: 'sk-openai-not-real' });
     await openPanel();
     const two = await readControl();
-    if (!two.options || two.options.length !== 2) {
-      fail(`expected two providers in the dropdown, saw ${JSON.stringify(two.options)}`);
-    }
-    console.log(`   offered: ${two.options.join(', ')}`);
+    if (!two.provider) fail('no provider switch appeared with two providers configured');
+    if (two.provider.label !== 'Claude') fail(`the switch shows "${two.provider.label}"`);
+    if (!/GPT/.test(two.provider.title)) fail(`the switch does not offer GPT: ${two.provider.title}`);
+    console.log(`   switch: ${two.provider.label} — ${two.provider.title}`);
 
     console.log('12. regenerating surfaces the real failure rather than hanging');
     // No host permission is granted, so this must fail loudly and recover.
     await page.evaluate(() =>
-      document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn').click(),
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="regenerate"]')
+        .click(),
     );
     await page
       .waitForFunction(
@@ -452,20 +504,88 @@ async function main() {
         { timeout: 15_000 },
       )
       .catch(() => fail('regenerating neither succeeded nor reported a failure'));
-    const stillUsable = await page.evaluate(
-      () =>
-        document.getElementById('hodoku-host').shadowRoot.querySelector('.mini-btn')
-          ?.textContent?.trim(),
-    );
-    if (stillUsable !== 'Regenerate') fail(`the button stayed stuck at "${stillUsable}"`);
+    const stillUsable = await page.evaluate(() => {
+      const button = document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="regenerate"]');
+      return button && !button.disabled && !button.classList.contains('icon-btn--busy');
+    });
+    if (!stillUsable) fail('the Regenerate button stayed disabled after the failure');
     console.log('   failure reported, control re-enabled');
+
+    console.log('13. the ask control opens a thread and reports a failure in it');
+    // Switch to the second provider first: opening the thread rebuilds the
+    // panel, and the choice must survive that rather than snap back.
+    await page.evaluate(() =>
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="provider"]')
+        .click(),
+    );
+    const switched = await readControl();
+    if (switched.provider?.label !== 'GPT') fail(`switching did not move to GPT: ${switched.provider?.label}`);
+    await page.evaluate(() =>
+      document
+        .getElementById('hodoku-host')
+        .shadowRoot.querySelector('.panel__actions [data-action="ask"]')
+        .click(),
+    );
+    const askBox = await page.evaluate(() => {
+      const shadow = document.getElementById('hodoku-host').shadowRoot;
+      const input = shadow.querySelector('.ask__input');
+      return {
+        present: input != null,
+        focused: shadow.activeElement === input,
+        pressed: shadow
+          .querySelector('.panel__actions [data-action="ask"]')
+          ?.getAttribute('aria-pressed'),
+        provider: shadow.querySelector('.panel__actions [data-action="provider"]')?.dataset.provider,
+      };
+    });
+    if (!askBox.present) fail('clicking Ask did not open a question box');
+    if (!askBox.focused) fail('the question box did not take focus');
+    if (askBox.pressed !== 'true') fail('the Ask button does not show the thread as open');
+    if (askBox.provider !== 'openai') fail('opening Ask reset the provider switch to the first provider');
+
+    // Type a question and send it with Enter. No host permission is granted,
+    // so the answer is an error — which must land in the thread, not vanish.
+    await page.keyboard.type('なぜ「を」ですか');
+    await page.keyboard.press('Enter');
+    const thread = await page
+      .waitForFunction(
+        () => {
+          const shadow = document.getElementById('hodoku-host').shadowRoot;
+          const error = shadow.querySelector('.ask__err');
+          if (!error) return null;
+          return {
+            question: shadow.querySelector('.ask__q')?.textContent,
+            error: error.textContent,
+            pending: shadow.querySelector('.ask__pending') != null,
+            inputEnabled: !shadow.querySelector('.ask__input')?.disabled,
+            inputEmpty: shadow.querySelector('.ask__input')?.value === '',
+          };
+        },
+        { timeout: 15_000 },
+      )
+      .then((handle) => handle.jsonValue())
+      .catch(() => fail('the question neither got an answer nor reported a failure'));
+    if (thread.question !== 'なぜ「を」ですか') fail(`the question shown was ${thread.question}`);
+    if (!/[Pp]ermission/.test(thread.error)) fail(`unexpected ask error: ${thread.error}`);
+    // The second provider is OpenAI, so the failure must name its host.
+    if (!/api\.openai\.com/.test(thread.error)) {
+      fail(`the question went to the wrong provider: ${thread.error}`);
+    }
+    if (thread.pending) fail('the thread still shows as thinking after the failure');
+    if (!thread.inputEnabled) fail('the question box stayed disabled after the failure');
+    if (!thread.inputEmpty) fail('the sent question stayed in the box');
+    console.log(`   asked, failure shown in thread: ${thread.error}`);
 
     await seedSettings({ aiTranslation: false, anthropicApiKey: '', openaiApiKey: '' });
     await seeder2.close();
     await page.bringToFront();
     await page.mouse.click(5, 5);
 
-    console.log('13. the panel save button stores the sentence');
+    console.log('14. the panel save button stores the sentence');
     await clickBox(await selectAndFindTrigger());
     await page.waitForFunction(
       () =>
@@ -495,7 +615,7 @@ async function main() {
       )
       .catch(() => fail('the save button never showed a saved state'));
 
-    console.log('14. the saved sentence appears on the review page');
+    console.log('15. the saved sentence appears on the review page');
     const extId = browser
       .targets()
       .map((t) => t.url())
@@ -526,7 +646,7 @@ async function main() {
     }
     if (!/1 saved/.test(saved.summary ?? '')) fail(`unexpected summary: ${saved.summary}`);
 
-    console.log('15. study mode reveals the answer');
+    console.log('16. study mode reveals the answer');
     await review.click('#study');
     await review.waitForSelector('.study__ja', { timeout: 10_000 });
     const revealed = await review.evaluate(async () => {
@@ -539,7 +659,7 @@ async function main() {
     });
     if (revealed !== EXPECTED_ROMAJI) fail(`study card revealed: ${revealed}`);
 
-    console.log('16. removing an item empties the list');
+    console.log('17. removing an item empties the list');
     await review.reload({ waitUntil: 'domcontentloaded' });
     await review.waitForSelector('.item', { timeout: 10_000 });
     await review.evaluate(() => {

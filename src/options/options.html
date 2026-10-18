@@ -108,6 +108,8 @@
               <span class="row__title">Use a model for a fluent sentence translation</span>
               <span class="row__hint">
                 Off by default. Romaji, readings, and word meanings all work offline without this.
+                With it on, the panel also gets templated notes on the grammar, exceptions and
+                readings in the sentence, and an <b>Ask</b> button for follow-up questions.
               </span>
             </span>
           </label>
@@ -163,6 +165,18 @@
                 <span class="status" id="test-status"></span>
               </div>
             </div>
+            <label class="row">
+              <input type="checkbox" id="aiStandardFields" />
+              <span class="row__text">
+                <span class="row__title">Let the model produce the reading and breakdown too</span>
+                <span class="row__hint">
+                  Off by default. The offline analyser's reading and word-by-word breakdown are
+                  replaced by the model's, from the same request as the translation. Uses more
+                  output tokens per sentence; if the model's breakdown does not line up with the
+                  sentence, the offline one is shown instead.
+                </span>
+              </span>
+            </label>
             <div class="field">
               <span class="row__title">Translation cache</span>
               <span class="row__hint" id="cache-summary">

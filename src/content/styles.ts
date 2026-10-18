@@ -21,6 +21,11 @@ export const PANEL_STYLES = /* css */ `
   --rr-warn-bg: #fff7ed;
   --rr-warn-fg: #9a3412;
   --rr-shadow: 0 12px 32px -8px rgba(16, 18, 27, 0.22), 0 2px 8px rgba(16, 18, 27, 0.08);
+  --rr-scrollbar: #c6cad2;
+  /* The extension icon's gradient (scripts/build-icons.mjs), so the mark on
+     the trigger is recognisably the same thing. Fixed, not themed: in dark
+     mode the accent turns pale, and the icon does not. */
+  --rr-mark: linear-gradient(180deg, #635bff, #4633d9);
 
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
@@ -28,9 +33,12 @@ export const PANEL_STYLES = /* css */ `
   line-height: 1.5;
   color: var(--rr-fg);
   -webkit-font-smoothing: antialiased;
+  /* Native scrollbars and form controls follow the panel's theme, not the page's. */
+  color-scheme: light;
 }
 
 .root[data-theme="dark"] {
+  color-scheme: dark;
   --rr-bg: #1b1d24;
   --rr-bg-soft: #22252e;
   --rr-fg: #eceef2;
@@ -42,7 +50,20 @@ export const PANEL_STYLES = /* css */ `
   --rr-warn-bg: #3a2a17;
   --rr-warn-fg: #fdba74;
   --rr-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --rr-scrollbar: #4a505e;
 }
+
+/* Scrollbars in the panel's own colours. color-scheme alone leaves them to
+   the platform, which on some setups still paints them light on dark. */
+.root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.root ::-webkit-scrollbar-track { background: transparent; }
+.root ::-webkit-scrollbar-thumb {
+  background: var(--rr-scrollbar);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.root ::-webkit-scrollbar-thumb:hover { background-color: var(--rr-fg-faint); }
 
 /* --------------------------------- trigger -------------------------------- */
 
@@ -73,7 +94,7 @@ export const PANEL_STYLES = /* css */ `
   width: 18px;
   height: 18px;
   border-radius: 5px;
-  background: var(--rr-accent);
+  background: var(--rr-mark);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
@@ -90,7 +111,7 @@ export const PANEL_STYLES = /* css */ `
 .panel {
   position: fixed;
   z-index: 2147483647;
-  width: 400px;
+  width: 760px;
   max-width: calc(100vw - 24px);
   max-height: min(70vh, 620px);
   display: flex;
@@ -112,15 +133,31 @@ export const PANEL_STYLES = /* css */ `
   background: var(--rr-bg-soft);
 }
 
+/* The sentence itself is what the panel is about, so it reads at display
+   size, with room above each line for the furigana. */
 .panel__source {
   flex: 1;
   min-width: 0;
-  font-size: 17px;
-  line-height: 1.7;
+  font-size: 24px;
+  line-height: 1.75;
   word-break: break-word;
 }
 
-.panel__actions { display: flex; gap: 2px; flex-shrink: 0; }
+.panel__source ruby { ruby-position: over; }
+.panel__source rt {
+  font-size: 0.45em;
+  font-weight: 400;
+  color: var(--rr-fg-muted);
+}
+
+.panel__actions { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
+.panel__actions-gap { width: 6px; }
+.panel__actions .mini-btn--provider { height: 26px; padding: 0 8px; }
+
+/* A regeneration in flight spins its arrow. */
+.icon-btn--busy svg { animation: rr-spin 900ms linear infinite; }
+.icon-btn:disabled { opacity: 0.55; cursor: default; }
+.icon-btn:disabled:hover { background: transparent; color: var(--rr-fg-muted); }
 
 .icon-btn {
   display: grid;
@@ -148,6 +185,40 @@ export const PANEL_STYLES = /* css */ `
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 0 0 8px;
+}
+
+/* A finished analysis splits into columns that scroll independently:
+   reading and meaning on the left, the breakdown beside it, and the question
+   thread as a third column while it is open. The header above spans all. */
+.panel__body--split {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  overflow: hidden;
+  padding: 0;
+}
+
+.panel__body--chat { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.panel:has(.panel__body--chat) { width: 1100px; }
+
+.panel__main, .panel__side {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-bottom: 8px;
+}
+
+.panel__side, .panel__chat { border-left: 1px solid var(--rr-border); }
+
+/* Too narrow for columns: stack them and scroll the body as one. */
+@media (max-width: 800px) {
+  .panel, .panel:has(.panel__body--chat) { width: 400px; }
+  .panel__body--split { display: block; overflow-y: auto; }
+  .panel__main, .panel__side { overflow: visible; }
+  .panel__side, .panel__chat { border-left: 0; }
+  .panel__chat { border-top: 1px solid var(--rr-border); }
+  .chat__log { overflow: visible; }
 }
 
 /* --------------------------------- romaji --------------------------------- */
@@ -197,6 +268,16 @@ export const PANEL_STYLES = /* css */ `
   color: var(--rr-fg-muted);
 }
 
+/* The offline gloss is up, the model's translation is still coming. */
+.meaning__pending {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 7px;
+  font-size: 12px;
+  color: var(--rr-fg-faint);
+}
+
 .meaning__literal {
   margin-top: 7px;
   padding-left: 9px;
@@ -205,14 +286,34 @@ export const PANEL_STYLES = /* css */ `
   color: var(--rr-fg-muted);
 }
 
-.meaning__note {
+/* The templated notes: one tinted block per section that has something to say. */
+.meaning__explanation {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-top: 8px;
+}
+
+.explanation__section {
   padding: 7px 9px;
   border-radius: 8px;
   background: var(--rr-accent-soft);
   font-size: 12.5px;
   color: var(--rr-fg-muted);
 }
+
+.explanation__label {
+  display: block;
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--rr-accent);
+}
+
+.explanation__list { margin: 0; padding-left: 16px; }
+.explanation__list li + li { margin-top: 2px; }
 
 .badge-source {
   display: inline-block;
@@ -260,18 +361,113 @@ export const PANEL_STYLES = /* css */ `
 
 .meaning__provider { font-size: 11.5px; color: var(--rr-fg-faint); }
 
-/* A dot marks a translation that cost nothing to show. */
-.badge-source--cached::after {
-  content: "";
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: 1px;
-  opacity: 0.6;
+/* Fields the model produced, as opposed to the offline analyser. */
+.badge-source--ai { color: var(--rr-accent); border-color: var(--rr-accent); }
+.romaji__row .badge-source { margin-top: 5px; flex-shrink: 0; }
+.section__label .badge-source { vertical-align: 0; }
+
+/* ---------------------------------- chat ---------------------------------- */
+
+.panel__chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
+
+.chat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 6px 14px;
+  border-bottom: 1px solid var(--rr-border);
+}
+.chat__head .section__label { margin-bottom: 0; }
+
+.chat__log {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.chat__hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--rr-fg-faint);
+}
+
+/* Bubbles: questions on the right, answers on the left, as in any chat. */
+.ask__q, .ask__a, .ask__err, .ask__pending {
+  max-width: 90%;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ask__q {
+  align-self: flex-end;
+  border-bottom-right-radius: 3px;
+  background: var(--rr-accent-soft);
+  color: var(--rr-fg);
+}
+
+.ask__a {
+  align-self: flex-start;
+  border-bottom-left-radius: 3px;
+  background: var(--rr-bg-soft);
+  border: 1px solid var(--rr-border);
+  color: var(--rr-fg);
+  user-select: text;
+}
+
+.ask__err {
+  align-self: flex-start;
+  border-bottom-left-radius: 3px;
+  background: var(--rr-warn-bg);
+  color: var(--rr-warn-fg);
+}
+
+.ask__pending {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--rr-fg-faint);
+}
+
+.chat__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rr-border);
+  background: var(--rr-bg);
+}
+
+.ask__input {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid var(--rr-border);
+  border-radius: 8px;
+  background: var(--rr-bg);
+  color: var(--rr-fg);
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.4;
+  resize: none;
+}
+.ask__input::placeholder { color: var(--rr-fg-faint); }
+.ask__input:focus-visible { outline: 2px solid var(--rr-accent); outline-offset: 1px; }
+.ask__input:disabled { opacity: 0.6; }
 
 /* ------------------------------- breakdown -------------------------------- */
 

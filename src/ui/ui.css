@@ -12,6 +12,7 @@
   --warn-bg: #fff7ed;
   --warn-fg: #9a3412;
   --ok: #15803d;
+  --scrollbar: #c6cad2;
   color-scheme: light dark;
 }
 
@@ -28,8 +29,19 @@
     --warn-bg: #3a2a17;
     --warn-fg: #fdba74;
     --ok: #4ade80;
+    --scrollbar: #4a505e;
   }
 }
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color: var(--fg-faint); }
 
 * { box-sizing: border-box; }
 
@@ -76,7 +88,8 @@ a { color: var(--accent); }
   width: 26px;
   height: 26px;
   border-radius: 8px;
-  background: var(--accent);
+  /* The icon's gradient, fixed across themes, like the mark on the trigger. */
+  background: linear-gradient(180deg, #635bff, #4633d9);
   color: #fff;
   font-size: 14px;
   font-weight: 700;

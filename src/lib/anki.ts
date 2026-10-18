@@ -13,6 +13,7 @@
  */
 
 import type { SavedItem } from './saved';
+import { explanationLines } from './explanation';
 import type { FuriganaSegment } from './types';
 
 export const ANKI_DEFAULT_URL = 'http://127.0.0.1:8765';
@@ -161,9 +162,9 @@ export function buildBack(item: SavedItem, furigana?: FuriganaSegment[]): string
       `<div style="margin-top:6px;opacity:.75;font-size:.9em">${escapeHtml(item.literal)}</div>`,
     );
   }
-  if (item.note) {
+  for (const line of explanationLines(item)) {
     lines.push(
-      `<div style="margin-top:6px;opacity:.75;font-size:.9em">${escapeHtml(item.note)}</div>`,
+      `<div style="margin-top:6px;opacity:.75;font-size:.9em">${escapeHtml(line)}</div>`,
     );
   }
   // Provenance, so a card carries a record of where its meaning came from.

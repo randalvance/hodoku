@@ -78,7 +78,7 @@ actions.append(furigana, iconButton('copy', 'Copy romaji'), iconButton('close', 
 head.appendChild(actions);
 panel.appendChild(head);
 
-const body = el('div', 'panel__body');
+const body = el('div', 'panel__body panel__body--split');
 renderBody(data.analysis, options).forEach((node) => body.appendChild(node));
 panel.appendChild(body);
 
