@@ -551,6 +551,17 @@ function redactKeys(settings: Settings): Settings {
   return { ...settings, ...Object.fromEntries(API_KEY_SETTINGS.map((key) => [key, ''])) };
 }
 
+/**
+ * Is this message from a content script running in a web page?
+ *
+ * `sender.tab` alone does not answer that: the options page opens in a tab
+ * too, and it has to see the stored keys or its next save would wipe them.
+ * Our own pages are told apart by their URL.
+ */
+function fromContentScript(sender: chrome.runtime.MessageSender): boolean {
+  return Boolean(sender.tab) && !(sender.url ?? '').startsWith(chrome.runtime.getURL(''));
+}
+
 chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: string }, sender, sendResponse) => {
   // Offscreen traffic rides the same channel; leave it alone.
   if (message?.target === 'offscreen') return undefined;
@@ -566,7 +577,7 @@ chrome.runtime.onMessage.addListener((message: BackgroundMessage & { target?: st
           sendResponse({
             ok: true,
             // A content script has no use for the keys, so it does not get them.
-            settings: sender.tab ? redactKeys(settings) : settings,
+            settings: fromContentScript(sender) ? redactKeys(settings) : settings,
             providers: availableProviders(settings),
           });
           return;

@@ -352,6 +352,20 @@ async function main() {
       EXPECTED_TEXT,
     );
 
+    // The options page is an extension page that happens to live in a tab,
+    // not a content script: it must be shown the stored key, or its next
+    // save would silently wipe it.
+    await seeder.reload({ waitUntil: 'domcontentloaded' });
+    await seeder
+      .waitForFunction(() => document.getElementById('apiKey')?.value === 'sk-ant-not-a-real-key', {
+        timeout: 10_000,
+      })
+      .catch(async () => {
+        const shown = await seeder.evaluate(() => document.getElementById('apiKey')?.value);
+        fail(`the options page did not show the stored API key (field held "${shown}")`);
+      });
+    console.log('   options page shows the stored key');
+
     await clickBox(await selectAndFindTrigger());
     await page.waitForFunction(
       () =>

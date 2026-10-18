@@ -21,6 +21,7 @@ export const PANEL_STYLES = /* css */ `
   --rr-warn-bg: #fff7ed;
   --rr-warn-fg: #9a3412;
   --rr-shadow: 0 12px 32px -8px rgba(16, 18, 27, 0.22), 0 2px 8px rgba(16, 18, 27, 0.08);
+  --rr-scrollbar: #c6cad2;
   /* The extension icon's gradient (scripts/build-icons.mjs), so the mark on
      the trigger is recognisably the same thing. Fixed, not themed: in dark
      mode the accent turns pale, and the icon does not. */
@@ -49,7 +50,20 @@ export const PANEL_STYLES = /* css */ `
   --rr-warn-bg: #3a2a17;
   --rr-warn-fg: #fdba74;
   --rr-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --rr-scrollbar: #4a505e;
 }
+
+/* Scrollbars in the panel's own colours. color-scheme alone leaves them to
+   the platform, which on some setups still paints them light on dark. */
+.root ::-webkit-scrollbar { width: 10px; height: 10px; }
+.root ::-webkit-scrollbar-track { background: transparent; }
+.root ::-webkit-scrollbar-thumb {
+  background: var(--rr-scrollbar);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+.root ::-webkit-scrollbar-thumb:hover { background-color: var(--rr-fg-faint); }
 
 /* --------------------------------- trigger -------------------------------- */
 
