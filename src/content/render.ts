@@ -28,6 +28,7 @@ export interface AskState {
   /** What is typed in the box, so a re-render does not lose it. */
   draft: string;
   onOpen: () => void;
+  onClose: () => void;
   onDraft: (value: string) => void;
   onSend: (question: string, provider: string) => void;
 }
@@ -166,20 +167,28 @@ function aiFieldsBadge(analysis: Analysis): HTMLElement {
 }
 
 /**
- * Everything between the header and the footer, as two columns: the reading
- * and meaning, then the breakdown. The body that holds them lays them out
- * side by side when there is room and stacks them otherwise.
+ * Everything between the header and the footer, as columns: the reading and
+ * meaning, then the breakdown, then — while a question thread is open — the
+ * chat. The body that holds them lays them out side by side when there is
+ * room and stacks them otherwise.
  */
 export function renderBody(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+  // One set of controls serves both the meaning section (Regenerate, Ask,
+  // the provider picker) and the chat, which sends to the picked provider.
+  const controls = renderMeaningControls(options);
+
   const main = el('div', 'panel__main');
   const side = el('div', 'panel__side');
-  for (const node of renderMain(analysis, options)) main.appendChild(node);
+  for (const node of renderMain(analysis, controls?.row)) main.appendChild(node);
   for (const node of renderBreakdown(analysis, options)) side.appendChild(node);
-  return [main, side];
+
+  const columns: HTMLElement[] = [main, side];
+  if (options.ask?.open && controls) columns.push(renderChat(options.ask, controls.provider));
+  return columns;
 }
 
 /** The reading, the meaning, and any warnings. */
-function renderMain(analysis: Analysis, options: RenderOptions): HTMLElement[] {
+function renderMain(analysis: Analysis, controls?: HTMLElement): HTMLElement[] {
   const nodes: HTMLElement[] = [];
 
   const romaji = el('div', 'romaji');
@@ -227,11 +236,7 @@ function renderMain(analysis: Analysis, options: RenderOptions): HTMLElement[] {
     const explanation = renderExplanation(analysis.explanation);
     if (explanation) section.appendChild(explanation);
 
-    const controls = renderMeaningControls(options);
-    if (controls) {
-      section.appendChild(controls.row);
-      if (options.ask?.open) section.appendChild(renderAsk(options.ask, controls.provider));
-    }
+    if (controls) section.appendChild(controls);
 
     nodes.push(section);
   }
@@ -362,43 +367,59 @@ function renderMeaningControls(
   return { row, provider };
 }
 
-/** The question thread: what was asked, what came back, and a box for more. */
-function renderAsk(ask: AskState, provider: () => string): HTMLElement {
-  const wrap = el('div', 'ask');
+/**
+ * The question thread as a chat column: the exchanges so far in a scrolling
+ * log, the box for the next question pinned underneath. Lives beside the
+ * breakdown while open, so the meaning stays in view as the answers come in.
+ */
+function renderChat(ask: AskState, provider: () => string): HTMLElement {
+  const column = el('div', 'panel__chat');
 
+  const head = el('div', 'chat__head');
+  const title = el('span', 'section__label');
+  title.textContent = 'Ask about this sentence';
+  head.appendChild(title);
+  const close = iconButton('close', 'Close the thread');
+  close.addEventListener('click', () => ask.onClose());
+  head.appendChild(close);
+  column.appendChild(head);
+
+  const log = el('div', 'chat__log');
+  if (!ask.thread.length) {
+    const hint = el('div', 'chat__hint');
+    hint.textContent =
+      'Ask anything about this sentence — why a particle was used, the nuance of a word, how else to say it. Follow-ups keep the thread in mind.';
+    log.appendChild(hint);
+  }
   for (const entry of ask.thread) {
-    const turn = el('div', 'ask__turn');
     const question = el('div', 'ask__q');
     question.textContent = entry.question;
-    turn.appendChild(question);
+    log.appendChild(question);
     if (entry.answer) {
       const answer = el('div', 'ask__a');
       answer.textContent = entry.answer;
-      turn.appendChild(answer);
+      log.appendChild(answer);
     } else if (entry.error) {
       const error = el('div', 'ask__err');
       error.textContent = entry.error;
-      turn.appendChild(error);
+      log.appendChild(error);
     }
-    wrap.appendChild(turn);
   }
-
   if (ask.pending) {
     const pending = el('div', 'ask__pending');
     pending.appendChild(el('div', 'spinner'));
     const text = el('span');
     text.textContent = 'Thinking…';
     pending.appendChild(text);
-    wrap.appendChild(pending);
+    log.appendChild(pending);
   }
+  column.appendChild(log);
 
-  const form = el('div', 'ask__form');
+  const form = el('div', 'chat__form');
   const input = document.createElement('textarea');
   input.className = 'ask__input';
   input.rows = 2;
-  input.placeholder = ask.thread.length
-    ? 'Ask a follow-up…'
-    : 'Ask about this sentence — why this particle, what the nuance is, how else to say it…';
+  input.placeholder = ask.thread.length ? 'Ask a follow-up…' : 'Your question…';
   input.setAttribute('aria-label', 'Your question about this sentence');
   input.value = ask.draft;
   input.disabled = ask.pending;
@@ -420,13 +441,13 @@ function renderAsk(ask: AskState, provider: () => string): HTMLElement {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'mini-btn mini-btn--send';
-  button.textContent = 'Ask';
+  button.textContent = 'Send';
   button.disabled = ask.pending;
   button.addEventListener('click', send);
 
   form.append(input, button);
-  wrap.appendChild(form);
-  return wrap;
+  column.appendChild(form);
+  return column;
 }
 
 function labelFor(provider: AvailableProvider): HTMLElement {

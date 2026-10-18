@@ -372,7 +372,14 @@ function renderPanel(view: PanelState): void {
   panel.textContent = '';
   panel.appendChild(buildHead(view));
 
-  const body = el('div', view.state === 'done' ? 'panel__body panel__body--split' : 'panel__body');
+  const body = el('div', 'panel__body');
+  if (view.state === 'done') {
+    body.classList.add('panel__body--split');
+    // A third column for the thread while it is open; the panel widens with it.
+    if (ask.open && settings.aiTranslation && providers.length > 0) {
+      body.classList.add('panel__body--chat');
+    }
+  }
   if (view.state === 'loading') {
     body.appendChild(loadingState());
   } else if (view.state === 'error') {
@@ -384,6 +391,10 @@ function renderPanel(view: PanelState): void {
 
   if (view.state === 'done') panel.appendChild(buildFoot(view.analysis));
 
+  // The chat log always shows its newest exchange.
+  const log = body.querySelector<HTMLElement>('.chat__log');
+  if (log) log.scrollTop = log.scrollHeight;
+
   // The whole panel is rebuilt on every change, so focus has to be restored
   // by hand — but only when the thread asked for it, not on every re-render,
   // or toggling furigana would yank the cursor into the question box.
@@ -393,9 +404,12 @@ function renderPanel(view: PanelState): void {
     if (input) {
       input.focus();
       input.setSelectionRange(input.value.length, input.value.length);
-      input.scrollIntoView({ block: 'nearest' });
     }
   }
+
+  // Opening or closing the thread changes the panel's width, which can push
+  // it past the viewport edge; re-anchor it.
+  if (panelAnchor) positionPanel(panelAnchor);
 }
 
 function buildHead(view: PanelState): HTMLElement {
@@ -503,6 +517,11 @@ function panelOptions(view: PanelState) {
             onOpen: () => {
               ask.open = true;
               ask.wantsFocus = true;
+              renderPanel(view);
+            },
+            // Closing keeps the exchanges, so reopening picks the thread back up.
+            onClose: () => {
+              ask.open = false;
               renderPanel(view);
             },
             onDraft: (value: string) => {

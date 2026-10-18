@@ -32,9 +32,12 @@ export const PANEL_STYLES = /* css */ `
   line-height: 1.5;
   color: var(--rr-fg);
   -webkit-font-smoothing: antialiased;
+  /* Native scrollbars and form controls follow the panel's theme, not the page's. */
+  color-scheme: light;
 }
 
 .root[data-theme="dark"] {
+  color-scheme: dark;
   --rr-bg: #1b1d24;
   --rr-bg-soft: #22252e;
   --rr-fg: #eceef2;
@@ -154,9 +157,9 @@ export const PANEL_STYLES = /* css */ `
   padding: 0 0 8px;
 }
 
-/* A finished analysis splits into two columns that scroll independently:
-   reading and meaning on the left, the breakdown on the right. The header
-   above spans both. */
+/* A finished analysis splits into columns that scroll independently:
+   reading and meaning on the left, the breakdown beside it, and the question
+   thread as a third column while it is open. The header above spans all. */
 .panel__body--split {
   flex: 1;
   min-height: 0;
@@ -166,6 +169,9 @@ export const PANEL_STYLES = /* css */ `
   padding: 0;
 }
 
+.panel__body--chat { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr); }
+.panel:has(.panel__body--chat) { width: 1100px; }
+
 .panel__main, .panel__side {
   min-height: 0;
   overflow-y: auto;
@@ -173,14 +179,16 @@ export const PANEL_STYLES = /* css */ `
   padding-bottom: 8px;
 }
 
-.panel__side { border-left: 1px solid var(--rr-border); }
+.panel__side, .panel__chat { border-left: 1px solid var(--rr-border); }
 
-/* Too narrow for two columns: stack them and scroll the body as one. */
+/* Too narrow for columns: stack them and scroll the body as one. */
 @media (max-width: 800px) {
-  .panel { width: 400px; }
+  .panel, .panel:has(.panel__body--chat) { width: 400px; }
   .panel__body--split { display: block; overflow-y: auto; }
   .panel__main, .panel__side { overflow: visible; }
-  .panel__side { border-left: 0; }
+  .panel__side, .panel__chat { border-left: 0; }
+  .panel__chat { border-top: 1px solid var(--rr-border); }
+  .chat__log { overflow: visible; }
 }
 
 /* --------------------------------- romaji --------------------------------- */
@@ -318,29 +326,91 @@ export const PANEL_STYLES = /* css */ `
 .romaji__row .badge-source { margin-top: 5px; flex-shrink: 0; }
 .section__label .badge-source { vertical-align: 0; }
 
-/* ---------------------------------- ask ----------------------------------- */
+/* ---------------------------------- chat ---------------------------------- */
 
-.ask {
+.panel__chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.chat__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 8px 6px 14px;
+  border-bottom: 1px solid var(--rr-border);
+}
+.chat__head .section__label { margin-bottom: 0; }
+
+.chat__log {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin-top: 10px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-.ask__turn { font-size: 12.5px; }
-.ask__q { font-weight: 600; color: var(--rr-fg); }
-.ask__a { margin-top: 3px; white-space: pre-wrap; color: var(--rr-fg-muted); user-select: text; }
-.ask__err { margin-top: 3px; color: var(--rr-warn-fg); }
-
-.ask__pending {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.chat__hint {
   font-size: 12px;
+  line-height: 1.5;
   color: var(--rr-fg-faint);
 }
 
-.ask__form { display: flex; align-items: flex-end; gap: 6px; }
+/* Bubbles: questions on the right, answers on the left, as in any chat. */
+.ask__q, .ask__a, .ask__err, .ask__pending {
+  max-width: 90%;
+  padding: 7px 10px;
+  border-radius: 12px;
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ask__q {
+  align-self: flex-end;
+  border-bottom-right-radius: 3px;
+  background: var(--rr-accent-soft);
+  color: var(--rr-fg);
+}
+
+.ask__a {
+  align-self: flex-start;
+  border-bottom-left-radius: 3px;
+  background: var(--rr-bg-soft);
+  border: 1px solid var(--rr-border);
+  color: var(--rr-fg);
+  user-select: text;
+}
+
+.ask__err {
+  align-self: flex-start;
+  border-bottom-left-radius: 3px;
+  background: var(--rr-warn-bg);
+  color: var(--rr-warn-fg);
+}
+
+.ask__pending {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--rr-fg-faint);
+}
+
+.chat__form {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--rr-border);
+  background: var(--rr-bg);
+}
 
 .ask__input {
   flex: 1;
@@ -358,19 +428,6 @@ export const PANEL_STYLES = /* css */ `
 .ask__input::placeholder { color: var(--rr-fg-faint); }
 .ask__input:focus-visible { outline: 2px solid var(--rr-accent); outline-offset: 1px; }
 .ask__input:disabled { opacity: 0.6; }
-
-/* A dot marks a translation that cost nothing to show. */
-.badge-source--cached::after {
-  content: "";
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  margin-left: 4px;
-  border-radius: 50%;
-  background: currentColor;
-  vertical-align: 1px;
-  opacity: 0.6;
-}
 
 /* ------------------------------- breakdown -------------------------------- */
 
